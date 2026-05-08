@@ -10,6 +10,7 @@ class piecetable {
   struct impl;
 
  public:
+  piecetable() = default;
   explicit piecetable(std::string_view initbuf) noexcept
       : initbuf_(initbuf),
         piecelist_({piece{.offset = 0, .length = initbuf.length(), .is_original = true}}) {}

@@ -6,6 +6,6 @@ add_subdirectory(edit)
 
 include(CTest)
 if (BUILD_TESTING)
-  # add_subdirectory(ut)
+  add_subdirectory(ut)
 endif()
 

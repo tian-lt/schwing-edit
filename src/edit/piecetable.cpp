@@ -31,6 +31,9 @@ size_t piecetable::length() const {
 
 std::string piecetable::get(size_t pos, size_t length) {
   std::string result;
+  if (length == 0) {
+    return result;
+  }
   size_t beg = 0;
   auto iter = impl::find_piece(this, pos, beg);
   if (iter == piecelist_.end()) {
@@ -94,6 +97,50 @@ void piecetable::insert(size_t pos, std::string_view data) {
                    .length = orig.length - offset,
                    .is_original = orig.is_original};
   piecelist_.insert(std::next(iter), {new_piece, tail_piece});
+}
+
+void piecetable::erase(size_t pos, size_t length) {
+  if (length == 0) {
+    return;
+  }
+  size_t beg = 0;
+  auto iter = impl::find_piece(this, pos, beg);
+  if (iter == piecelist_.end()) {
+    throw std::logic_error{"out of range"};
+  }
+
+  auto offset = pos - beg;
+  if (offset > 0) {
+    auto avail = iter->length - offset;
+    if (length < avail) {
+      // erase falls entirely inside this piece: split it in two
+      auto orig = *iter;
+      iter->length = offset;
+      piece tail{.offset = orig.offset + offset + length,
+                 .length = orig.length - offset - length,
+                 .is_original = orig.is_original};
+      piecelist_.insert(std::next(iter), tail);
+      return;
+    }
+    iter->length = offset;
+    length -= avail;
+    ++iter;
+  }
+
+  // remove whole pieces and possibly trim the front of the last partial piece
+  while (length > 0) {
+    if (iter == piecelist_.end()) {
+      throw std::logic_error{"out of range"};
+    }
+    if (length >= iter->length) {
+      length -= iter->length;
+      iter = piecelist_.erase(iter);
+    } else {
+      iter->offset += length;
+      iter->length -= length;
+      length = 0;
+    }
+  }
 }
 
 }  // namespace swg

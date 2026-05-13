@@ -16,7 +16,11 @@ struct insert_op {
   size_t pos;
   std::string data;
 };
-using test_op = std::variant<insert_op>;
+struct erase_op {
+  size_t pos;
+  size_t length;
+};
+using test_op = std::variant<insert_op, erase_op>;
 
 struct test_case {
   std::string original;
@@ -35,6 +39,8 @@ TEST_P(piecetable_tests, run) {
         [&]<class T>(const T& op) {
           if constexpr (std::is_same_v<T, insert_op>) {
             table.insert(op.pos, op.data);
+          } else if constexpr (std::is_same_v<T, erase_op>) {
+            table.erase(op.pos, op.length);
           }
         },
         step);
@@ -141,5 +147,86 @@ INSTANTIATE_TEST_CASE_P(
                   .test_ops = {insert_op{.pos = 0, .data = ""}, insert_op{.pos = 1, .data = "X"},
                                insert_op{.pos = 2, .data = ""}, insert_op{.pos = 3, .data = "Y"},
                                insert_op{.pos = 5, .data = ""}}}));
+
+INSTANTIATE_TEST_CASE_P(
+    erase, piecetable_tests,
+    ::testing::Values(
+        // zero-length erase is a no-op
+        test_case{.original = "hello",
+                  .expected = "hello",
+                  .test_ops = {erase_op{.pos = 0, .length = 0}, erase_op{.pos = 2, .length = 0},
+                               erase_op{.pos = 5, .length = 0}}},
+        // erase entirely inside the original buffer (splits the original piece)
+        test_case{.original = "hello world",
+                  .expected = "hello",
+                  .test_ops = {erase_op{.pos = 5, .length = 6}}},
+        // erase from the beginning of the original buffer (trims front)
+        test_case{.original = "hello world",
+                  .expected = "world",
+                  .test_ops = {erase_op{.pos = 0, .length = 6}}},
+        // erase in the middle of the original buffer (split into two)
+        test_case{.original = "hello world",
+                  .expected = "held",
+                  .test_ops = {erase_op{.pos = 3, .length = 7}}},
+        // erase the entire content
+        test_case{
+            .original = "hello", .expected = "", .test_ops = {erase_op{.pos = 0, .length = 5}}},
+        // erase across an original/add-buffer boundary (consumes a whole add piece)
+        test_case{
+            .original = "AB",
+            .expected = "AB",
+            .test_ops = {insert_op{.pos = 1, .data = "XYZ"}, erase_op{.pos = 1, .length = 3}}},
+        // erase spans multiple pieces: trims tail of one, drops a whole piece, trims head of next
+        test_case{.original = "ABCDE",
+                  .expected = "AE",
+                  .test_ops = {insert_op{.pos = 1, .data = "1"}, insert_op{.pos = 3, .data = "2"},
+                               // table is now "A1BC2DE"; erase "1BC2D" => "AE"
+                               erase_op{.pos = 1, .length = 5}}},
+        // erase reduces an add-buffer piece to zero (whole-piece removal)
+        test_case{.original = "AB",
+                  .expected = "AB",
+                  .test_ops = {insert_op{.pos = 1, .data = "X"}, erase_op{.pos = 1, .length = 1}}},
+        // insert, then erase the just-inserted text (split + drop)
+        test_case{.original = "hello world",
+                  .expected = "hello world",
+                  .test_ops = {insert_op{.pos = 5, .data = " beautiful"},
+                               erase_op{.pos = 5, .length = 10}}},
+        // erase that crosses the boundary of an original piece into a trailing add piece
+        test_case{.original = "ABCD",
+                  .expected = "AY",
+                  .test_ops = {insert_op{.pos = 4, .data = "XY"},
+                               // table is "ABCDXY"; erase "BCDX" => "AY"
+                               erase_op{.pos = 1, .length = 4}}},
+        // interleaved inserts and erases
+        test_case{.original = "the quick brown fox",
+                  .expected = "the fox",
+                  .test_ops = {erase_op{.pos = 3, .length = 12}}},
+        // erase, then re-insert at the same position
+        test_case{
+            .original = "hello world",
+            .expected = "hello C++",
+            .test_ops = {erase_op{.pos = 6, .length = 5}, insert_op{.pos = 6, .data = "C++"}}},
+        // erase the entire content piece by piece
+        test_case{.original = "abcdef",
+                  .expected = "",
+                  .test_ops = {erase_op{.pos = 5, .length = 1}, erase_op{.pos = 4, .length = 1},
+                               erase_op{.pos = 3, .length = 1}, erase_op{.pos = 2, .length = 1},
+                               erase_op{.pos = 1, .length = 1}, erase_op{.pos = 0, .length = 1}}},
+        // erase that spans many small add-buffer pieces (built from the "Hello" sequence)
+        test_case{.original = "",
+                  .expected = "Ho",
+                  .test_ops = {insert_op{.pos = 0, .data = "H"}, insert_op{.pos = 1, .data = "o"},
+                               insert_op{.pos = 1, .data = "l"}, insert_op{.pos = 1, .data = "l"},
+                               insert_op{.pos = 1, .data = "e"},
+                               // table is now "Hello"; erase "ell" => "Ho"
+                               erase_op{.pos = 1, .length = 3}}},
+        // realistic edit: build then trim
+        test_case{.original = "The fox",
+                  .expected = "The quick fox jumps",
+                  .test_ops = {insert_op{.pos = 4, .data = "quick "},
+                               insert_op{.pos = 9, .data = " brown"},
+                               insert_op{.pos = 19, .data = " jumps"},
+                               // table is now "The quick brown fox jumps"; erase " brown"
+                               erase_op{.pos = 9, .length = 6}}}));
 
 }  // namespace swg::ut

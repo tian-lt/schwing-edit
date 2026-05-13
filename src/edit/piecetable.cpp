@@ -1,4 +1,5 @@
 // std
+#include <cassert>
 #include <stdexcept>
 
 // swg
@@ -7,11 +8,11 @@
 namespace swg {
 
 struct piecetable::impl {
-  static auto find_piece(piecetable* self, size_t pos) {
-    size_t idx = 0;
+  static auto find_piece(piecetable* self, size_t pos, size_t& beg) {
+    assert(beg == 0 && "beg must be 0 at the start");
     for (auto iter = self->piecelist_.begin(); iter != self->piecelist_.end(); ++iter) {
-      if (idx + iter->length <= pos) {
-        idx += iter->length;
+      if (beg + iter->length <= pos) {
+        beg += iter->length;
         continue;
       }
       return iter;
@@ -20,7 +21,37 @@ struct piecetable::impl {
   }
 };
 
+size_t piecetable::length() const {
+  size_t len = 0;
+  for (const auto& piece : piecelist_) {
+    len += piece.length;
+  }
+  return len;
+}
+
+std::string piecetable::get(size_t pos, size_t length) {
+  std::string result;
+  size_t beg = 0;
+  auto iter = impl::find_piece(this, pos, beg);
+  if (iter == piecelist_.end()) {
+    throw std::logic_error{"out of range"};
+  }
+  auto offset = pos - beg;
+  while (length > 0) {
+    auto len = std::min(iter->length - offset, length);
+    result.append(iter->is_original ? initbuf_.substr(iter->offset + offset, len)
+                                    : addbuf_.substr(iter->offset + offset, len));
+    length -= len;
+    ++iter;
+    offset = 0;
+  }
+  return result;
+}
+
 void piecetable::insert(size_t pos, std::string_view data) {
+  if (data.empty()) {
+    return;
+  }
   auto add_offset = addbuf_.size();
   addbuf_ += data;
   if (piecelist_.empty()) {
@@ -28,7 +59,8 @@ void piecetable::insert(size_t pos, std::string_view data) {
     return;
   }
 
-  auto iter = impl::find_piece(this, pos);
+  size_t beg = 0;
+  auto iter = impl::find_piece(this, pos, beg);
   if (iter == piecelist_.end()) {
     auto& last = piecelist_.back();
     if (!last.is_original && last.offset + last.length == add_offset) {
@@ -36,8 +68,31 @@ void piecetable::insert(size_t pos, std::string_view data) {
     } else {
       piecelist_.push_back(piece{.offset = add_offset, .length = data.length()});
     }
-  } else {
+    return;
   }
+
+  auto offset = pos - beg;
+  if (offset == 0) {
+    // insertion at a piece boundary; try to extend the previous add-buffer piece
+    if (iter != piecelist_.begin()) {
+      auto prev = std::prev(iter);
+      if (!prev->is_original && prev->offset + prev->length == add_offset) {
+        prev->length += data.length();
+        return;
+      }
+    }
+    piecelist_.insert(iter, piece{.offset = add_offset, .length = data.length(), .is_original = false});
+    return;
+  }
+
+  // insertion in the middle of a piece: split it into two and insert the new piece in between
+  auto orig = *iter;
+  iter->length = offset;
+  piece new_piece{.offset = add_offset, .length = data.length(), .is_original = false};
+  piece tail_piece{.offset = orig.offset + offset,
+                   .length = orig.length - offset,
+                   .is_original = orig.is_original};
+  piecelist_.insert(std::next(iter), {new_piece, tail_piece});
 }
 
 }  // namespace swg

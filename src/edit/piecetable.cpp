@@ -81,7 +81,8 @@ void piecetable::insert(size_t pos, std::string_view data) {
         return;
       }
     }
-    piecelist_.insert(iter, piece{.offset = add_offset, .length = data.length(), .is_original = false});
+    piecelist_.insert(iter,
+                      piece{.offset = add_offset, .length = data.length(), .is_original = false});
     return;
   }
 

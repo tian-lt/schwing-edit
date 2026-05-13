@@ -52,15 +52,14 @@ INSTANTIATE_TEST_CASE_P(
                                insert_op{.pos = 5, .data = " world"},
                                insert_op{.pos = 11, .data = "!!!"}}},
         // insert in the middle of an add-buffer piece (splits it)
-        test_case{.original = "",
-                  .expected = "ABC",
-                  .test_ops = {insert_op{.pos = 0, .data = "AC"},
-                               insert_op{.pos = 1, .data = "B"}}},
+        test_case{
+            .original = "",
+            .expected = "ABC",
+            .test_ops = {insert_op{.pos = 0, .data = "AC"}, insert_op{.pos = 1, .data = "B"}}},
         // no-op insertions
         test_case{.original = "abc",
                   .expected = "abc",
-                  .test_ops = {insert_op{.pos = 0, .data = ""},
-                               insert_op{.pos = 1, .data = ""},
+                  .test_ops = {insert_op{.pos = 0, .data = ""}, insert_op{.pos = 1, .data = ""},
                                insert_op{.pos = 3, .data = ""}}},
         // insert at the beginning of the original buffer
         test_case{.original = "world",
@@ -77,66 +76,57 @@ INSTANTIATE_TEST_CASE_P(
         // multiple inserts at the end coalesce into one add-buffer piece
         test_case{.original = "x",
                   .expected = "xabc",
-                  .test_ops = {insert_op{.pos = 1, .data = "a"},
-                               insert_op{.pos = 2, .data = "b"},
+                  .test_ops = {insert_op{.pos = 1, .data = "a"}, insert_op{.pos = 2, .data = "b"},
                                insert_op{.pos = 3, .data = "c"}}},
         // multiple inserts at the beginning (each one becomes new head)
         test_case{.original = "x",
                   .expected = "cbax",
-                  .test_ops = {insert_op{.pos = 0, .data = "a"},
-                               insert_op{.pos = 0, .data = "b"},
+                  .test_ops = {insert_op{.pos = 0, .data = "a"}, insert_op{.pos = 0, .data = "b"},
                                insert_op{.pos = 0, .data = "c"}}},
         // split, then split again inside the new add-buffer piece
-        test_case{.original = "AE",
-                  .expected = "ABCDE",
-                  .test_ops = {insert_op{.pos = 1, .data = "BD"},
-                               insert_op{.pos = 2, .data = "C"}}},
+        test_case{
+            .original = "AE",
+            .expected = "ABCDE",
+            .test_ops = {insert_op{.pos = 1, .data = "BD"}, insert_op{.pos = 2, .data = "C"}}},
         // split, then split again inside the trailing original piece
         test_case{.original = "ABCD",
                   .expected = "AXBYCD",
-                  .test_ops = {insert_op{.pos = 1, .data = "X"},
-                               insert_op{.pos = 3, .data = "Y"}}},
+                  .test_ops = {insert_op{.pos = 1, .data = "X"}, insert_op{.pos = 3, .data = "Y"}}},
         // insertions at a piece boundary coalesce with the preceding add-buffer piece
         test_case{.original = "AC",
                   .expected = "AxyC",
-                  .test_ops = {insert_op{.pos = 1, .data = "x"},
-                               insert_op{.pos = 2, .data = "y"}}},
+                  .test_ops = {insert_op{.pos = 1, .data = "x"}, insert_op{.pos = 2, .data = "y"}}},
         // building "Hello" letter-by-letter at pos 1, exercising repeated splits and
         // boundary inserts that do NOT coalesce (final piecelist has 5 add-buffer pieces)
         test_case{.original = "",
                   .expected = "Hello",
-                  .test_ops = {insert_op{.pos = 0, .data = "H"},
-                               insert_op{.pos = 1, .data = "o"},
-                               insert_op{.pos = 1, .data = "l"},
-                               insert_op{.pos = 1, .data = "l"},
+                  .test_ops = {insert_op{.pos = 0, .data = "H"}, insert_op{.pos = 1, .data = "o"},
+                               insert_op{.pos = 1, .data = "l"}, insert_op{.pos = 1, .data = "l"},
                                insert_op{.pos = 1, .data = "e"}}},
         // splitting the original buffer multiple times, mixed with end and head inserts
         test_case{.original = "abcdefghij",
                   .expected = "5abc2de1fg3hij4",
-                  .test_ops = {insert_op{.pos = 5, .data = "1"},
-                               insert_op{.pos = 3, .data = "2"},
-                               insert_op{.pos = 9, .data = "3"},
-                               insert_op{.pos = 13, .data = "4"},
+                  .test_ops = {insert_op{.pos = 5, .data = "1"}, insert_op{.pos = 3, .data = "2"},
+                               insert_op{.pos = 9, .data = "3"}, insert_op{.pos = 13, .data = "4"},
                                insert_op{.pos = 0, .data = "5"}}},
         // a mid-insert breaks the addbuf-adjacency chain so the next end-append must
         // NOT coalesce with the previous tail piece
-        test_case{.original = "",
-                  .expected = "abXcdefghi",
-                  .test_ops = {insert_op{.pos = 0, .data = "abc"},
-                               insert_op{.pos = 3, .data = "def"},
-                               insert_op{.pos = 2, .data = "X"},
-                               insert_op{.pos = 7, .data = "ghi"}}},
+        test_case{
+            .original = "",
+            .expected = "abXcdefghi",
+            .test_ops = {insert_op{.pos = 0, .data = "abc"}, insert_op{.pos = 3, .data = "def"},
+                         insert_op{.pos = 2, .data = "X"}, insert_op{.pos = 7, .data = "ghi"}}},
         // boundary insert whose preceding piece is from the original buffer
         // (must NOT coalesce; new piece is inserted in front of the existing add piece)
         test_case{.original = "AB",
                   .expected = "AYXB",
-                  .test_ops = {insert_op{.pos = 1, .data = "X"},
-                               insert_op{.pos = 1, .data = "Y"}}},
+                  .test_ops = {insert_op{.pos = 1, .data = "X"}, insert_op{.pos = 1, .data = "Y"}}},
         // inserting a long run of characters in the middle of the original buffer
         test_case{.original = "AB",
                   .expected = "A" + std::string(64, 'x') + "B",
                   .test_ops = {insert_op{.pos = 1, .data = std::string(64, 'x')}}},
-        // realistic editing session: build a sentence with appends, mid-inserts and a prepend-like insert
+        // realistic editing session: build a sentence with appends, mid-inserts and a prepend-like
+        // insert
         test_case{.original = "The fox",
                   .expected = "The very quick brown fox jumps over the lazy dog",
                   .test_ops = {insert_op{.pos = 4, .data = "quick "},
@@ -148,10 +138,8 @@ INSTANTIATE_TEST_CASE_P(
         // non-empty inserts alone (empty inserts are no-ops)
         test_case{.original = "abc",
                   .expected = "aXbYc",
-                  .test_ops = {insert_op{.pos = 0, .data = ""},
-                               insert_op{.pos = 1, .data = "X"},
-                               insert_op{.pos = 2, .data = ""},
-                               insert_op{.pos = 3, .data = "Y"},
+                  .test_ops = {insert_op{.pos = 0, .data = ""}, insert_op{.pos = 1, .data = "X"},
+                               insert_op{.pos = 2, .data = ""}, insert_op{.pos = 3, .data = "Y"},
                                insert_op{.pos = 5, .data = ""}}}));
 
 }  // namespace swg::ut

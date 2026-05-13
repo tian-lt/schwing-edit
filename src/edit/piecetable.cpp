@@ -8,44 +8,54 @@
 namespace swg {
 
 struct piecetable::impl {
-  static auto find_piece(piecetable* self, size_t pos, size_t& beg) {
-    assert(beg == 0 && "beg must be 0 at the start");
-    for (auto iter = self->piecelist_.begin(); iter != self->piecelist_.end(); ++iter) {
-      if (beg + iter->length <= pos) {
-        beg += iter->length;
+  static auto find_piece(const piecetable* self, size_t pos) {
+    struct {
+      size_t idx = 0;
+      size_t beg = 0;
+    } result;
+    for (; result.idx < self->piecelist_.size(); ++result.idx) {
+      if (result.beg + self->piecelist_[result.idx].length <= pos) {
+        result.beg += self->piecelist_[result.idx].length;
         continue;
       }
-      return iter;
+      return result;
     }
-    return self->piecelist_.end();
+    return result;
   }
 };
 
 size_t piecetable::length() const {
   size_t len = 0;
-  for (const auto& piece : piecelist_) {
-    len += piece.length;
+  for (const auto& p : piecelist_) {
+    len += p.length;
   }
   return len;
 }
 
-std::string piecetable::get(size_t pos, size_t length) {
+std::string piecetable::get(size_t pos, size_t length) const {
   std::string result;
   if (length == 0) {
+    if (pos > this->length()) {
+      throw std::out_of_range{"pos out of range"};
+    }
     return result;
   }
-  size_t beg = 0;
-  auto iter = impl::find_piece(this, pos, beg);
-  if (iter == piecelist_.end()) {
-    throw std::logic_error{"out of range"};
+  auto [idx, beg] = impl::find_piece(this, pos);
+  if (idx == piecelist_.size()) {
+    throw std::out_of_range{"pos out of range"};
   }
+  result.reserve(length);
   auto offset = pos - beg;
   while (length > 0) {
-    auto len = std::min(iter->length - offset, length);
-    result.append(iter->is_original ? initbuf_.substr(iter->offset + offset, len)
-                                    : addbuf_.substr(iter->offset + offset, len));
+    if (idx == piecelist_.size()) {
+      throw std::out_of_range{"length out of range"};
+    }
+    auto& piece = piecelist_[idx];
+    auto len = std::min(piece.length - offset, length);
+    const auto& buf = piece.is_original ? initbuf_ : std::string_view{addbuf_};
+    result.append(buf.data() + piece.offset + offset, len);
     length -= len;
-    ++iter;
+    ++idx;
     offset = 0;
   }
   return result;
@@ -62,9 +72,8 @@ void piecetable::insert(size_t pos, std::string_view data) {
     return;
   }
 
-  size_t beg = 0;
-  auto iter = impl::find_piece(this, pos, beg);
-  if (iter == piecelist_.end()) {
+  auto [idx, beg] = impl::find_piece(this, pos);
+  if (idx == piecelist_.size()) {
     auto& last = piecelist_.back();
     if (!last.is_original && last.offset + last.length == add_offset) {
       last.length += data.length();
@@ -77,67 +86,68 @@ void piecetable::insert(size_t pos, std::string_view data) {
   auto offset = pos - beg;
   if (offset == 0) {
     // insertion at a piece boundary; try to extend the previous add-buffer piece
-    if (iter != piecelist_.begin()) {
-      auto prev = std::prev(iter);
-      if (!prev->is_original && prev->offset + prev->length == add_offset) {
-        prev->length += data.length();
+    if (idx != 0) {
+      auto& prev = piecelist_[idx - 1];
+      if (!prev.is_original && prev.offset + prev.length == add_offset) {
+        prev.length += data.length();
         return;
       }
     }
-    piecelist_.insert(iter,
+    piecelist_.insert(piecelist_.begin() + idx,
                       piece{.offset = add_offset, .length = data.length(), .is_original = false});
     return;
   }
 
   // insertion in the middle of a piece: split it into two and insert the new piece in between
-  auto orig = *iter;
-  iter->length = offset;
+  auto orig = piecelist_[idx];
+  piecelist_[idx].length = offset;
   piece new_piece{.offset = add_offset, .length = data.length(), .is_original = false};
   piece tail_piece{.offset = orig.offset + offset,
                    .length = orig.length - offset,
                    .is_original = orig.is_original};
-  piecelist_.insert(std::next(iter), {new_piece, tail_piece});
+  piecelist_.insert(piecelist_.begin() + idx + 1, {new_piece, tail_piece});
 }
 
 void piecetable::erase(size_t pos, size_t length) {
   if (length == 0) {
     return;
   }
-  size_t beg = 0;
-  auto iter = impl::find_piece(this, pos, beg);
-  if (iter == piecelist_.end()) {
-    throw std::logic_error{"out of range"};
+  auto [idx, beg] = impl::find_piece(this, pos);
+  if (idx == piecelist_.size()) {
+    throw std::out_of_range{"pos out of range"};
   }
 
   auto offset = pos - beg;
   if (offset > 0) {
-    auto avail = iter->length - offset;
+    auto& cur = piecelist_[idx];
+    auto avail = cur.length - offset;
     if (length < avail) {
       // erase falls entirely inside this piece: split it in two
-      auto orig = *iter;
-      iter->length = offset;
+      auto orig = cur;
+      cur.length = offset;
       piece tail{.offset = orig.offset + offset + length,
                  .length = orig.length - offset - length,
                  .is_original = orig.is_original};
-      piecelist_.insert(std::next(iter), tail);
+      piecelist_.insert(piecelist_.begin() + idx + 1, tail);
       return;
     }
-    iter->length = offset;
+    cur.length = offset;
     length -= avail;
-    ++iter;
+    ++idx;
   }
 
   // remove whole pieces and possibly trim the front of the last partial piece
   while (length > 0) {
-    if (iter == piecelist_.end()) {
-      throw std::logic_error{"out of range"};
+    if (idx == piecelist_.size()) {
+      throw std::out_of_range{"pos out of range"};
     }
-    if (length >= iter->length) {
-      length -= iter->length;
-      iter = piecelist_.erase(iter);
+    auto& cur = piecelist_[idx];
+    if (length >= cur.length) {
+      length -= cur.length;
+      piecelist_.erase(piecelist_.begin() + idx);
     } else {
-      iter->offset += length;
-      iter->length -= length;
+      cur.offset += length;
+      cur.length -= length;
       length = 0;
     }
   }

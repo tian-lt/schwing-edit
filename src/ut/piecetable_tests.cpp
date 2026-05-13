@@ -1,4 +1,5 @@
 // std
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -9,7 +10,7 @@
 // schwing
 #include "piecetable.hpp"
 
-namespace swg::ut {
+namespace swg::ut::piecetable_ut {
 
 namespace {
 struct insert_op {
@@ -25,6 +26,8 @@ using test_op = std::variant<insert_op, erase_op>;
 struct test_case {
   std::string original;
   std::string expected;
+  std::optional<size_t> get_pos;
+  std::optional<size_t> get_length;
   std::vector<test_op> test_ops;
 };
 }  // namespace
@@ -45,7 +48,7 @@ TEST_P(piecetable_tests, run) {
         },
         step);
   }
-  EXPECT_EQ(table.get(0, table.length()), p.expected);
+  EXPECT_EQ(table.get(p.get_pos.value_or(0), p.get_length.value_or(table.length())), p.expected);
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -229,4 +232,94 @@ INSTANTIATE_TEST_CASE_P(
                                // table is now "The quick brown fox jumps"; erase " brown"
                                erase_op{.pos = 9, .length = 6}}}));
 
-}  // namespace swg::ut
+INSTANTIATE_TEST_CASE_P(
+    get, piecetable_tests,
+    ::testing::Values(
+        // read whole buffer from a pristine original-only table
+        test_case{.original = "hello world", .expected = "hello world"},
+        // explicit whole-buffer read with pos=0 and length=table.length()
+        test_case{
+            .original = "hello world", .expected = "hello world", .get_pos = 0, .get_length = 11},
+        // zero-length read returns empty regardless of position
+        test_case{.original = "hello", .expected = "", .get_pos = 0, .get_length = 0},
+        test_case{.original = "hello", .expected = "", .get_pos = 3, .get_length = 0},
+        test_case{.original = "hello", .expected = "", .get_pos = 5, .get_length = 0},
+        // read prefix / suffix / middle of a single original piece
+        test_case{.original = "hello world", .expected = "hello", .get_pos = 0, .get_length = 5},
+        test_case{.original = "hello world", .expected = "world", .get_pos = 6, .get_length = 5},
+        test_case{.original = "hello world", .expected = "lo wo", .get_pos = 3, .get_length = 5},
+        // single-character reads
+        test_case{.original = "abcdef", .expected = "a", .get_pos = 0, .get_length = 1},
+        test_case{.original = "abcdef", .expected = "c", .get_pos = 2, .get_length = 1},
+        test_case{.original = "abcdef", .expected = "f", .get_pos = 5, .get_length = 1},
+        // read entirely inside an add-buffer piece created by a mid-insert
+        test_case{.original = "AB",
+                  .expected = "XYZ",
+                  .get_pos = 1,
+                  .get_length = 3,
+                  .test_ops = {insert_op{.pos = 1, .data = "XYZ"}}},
+        // read entirely inside the trailing original piece after a split
+        test_case{.original = "ABCDEF",
+                  .expected = "DEF",
+                  .get_pos = 4,
+                  .get_length = 3,
+                  .test_ops = {insert_op{.pos = 3, .data = "X"}}},
+        // read straddling original -> add boundary
+        test_case{.original = "AB",
+                  .expected = "BXY",
+                  .get_pos = 1,
+                  .get_length = 3,
+                  .test_ops = {insert_op{.pos = 2, .data = "XYZ"}}},
+        // read straddling add -> original boundary
+        test_case{.original = "AB",
+                  .expected = "YZB",
+                  .get_pos = 2,
+                  .get_length = 3,
+                  .test_ops = {insert_op{.pos = 1, .data = "XYZ"}}},
+        // read spanning original -> add -> original (three pieces)
+        test_case{.original = "AB",
+                  .expected = "AXYZB",
+                  .get_pos = 0,
+                  .get_length = 5,
+                  .test_ops = {insert_op{.pos = 1, .data = "XYZ"}}},
+        // read spanning many small add-buffer pieces (the "Hello" letter-by-letter table)
+        test_case{.original = "",
+                  .expected = "ell",
+                  .get_pos = 1,
+                  .get_length = 3,
+                  .test_ops = {insert_op{.pos = 0, .data = "H"}, insert_op{.pos = 1, .data = "o"},
+                               insert_op{.pos = 1, .data = "l"}, insert_op{.pos = 1, .data = "l"},
+                               insert_op{.pos = 1, .data = "e"}}},
+        // read after an erase: positions refer to the post-erase content
+        // "hello world" with erase(2, 7) removes "llo wor", leaving "held"
+        test_case{.original = "hello world",
+                  .expected = "hel",
+                  .get_pos = 0,
+                  .get_length = 3,
+                  .test_ops = {erase_op{.pos = 2, .length = 7}}},
+        // mixed edits, read the entire final content via explicit range
+        test_case{.original = "The fox",
+                  .expected = "The quick fox",
+                  .get_pos = 0,
+                  .get_length = 13,
+                  .test_ops = {insert_op{.pos = 4, .data = "quick "}}},
+        // mixed edits, read a substring that crosses several pieces
+        test_case{.original = "The fox",
+                  .expected = "quick fox",
+                  .get_pos = 4,
+                  .get_length = 9,
+                  .test_ops = {insert_op{.pos = 4, .data = "quick "}}},
+        // read the very last byte
+        test_case{.original = "abcdef",
+                  .expected = "f",
+                  .get_pos = 7,
+                  .get_length = 1,
+                  .test_ops = {insert_op{.pos = 3, .data = "XY"}}},
+        // read a single byte from inside the add-buffer piece in the middle
+        test_case{.original = "abcdef",
+                  .expected = "Y",
+                  .get_pos = 4,
+                  .get_length = 1,
+                  .test_ops = {insert_op{.pos = 3, .data = "XY"}}}));
+
+}  // namespace swg::ut::piecetable

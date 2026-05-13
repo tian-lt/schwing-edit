@@ -100,6 +100,58 @@ INSTANTIATE_TEST_CASE_P(
         test_case{.original = "AC",
                   .expected = "AxyC",
                   .test_ops = {insert_op{.pos = 1, .data = "x"},
-                               insert_op{.pos = 2, .data = "y"}}}));
+                               insert_op{.pos = 2, .data = "y"}}},
+        // building "Hello" letter-by-letter at pos 1, exercising repeated splits and
+        // boundary inserts that do NOT coalesce (final piecelist has 5 add-buffer pieces)
+        test_case{.original = "",
+                  .expected = "Hello",
+                  .test_ops = {insert_op{.pos = 0, .data = "H"},
+                               insert_op{.pos = 1, .data = "o"},
+                               insert_op{.pos = 1, .data = "l"},
+                               insert_op{.pos = 1, .data = "l"},
+                               insert_op{.pos = 1, .data = "e"}}},
+        // splitting the original buffer multiple times, mixed with end and head inserts
+        test_case{.original = "abcdefghij",
+                  .expected = "5abc2de1fg3hij4",
+                  .test_ops = {insert_op{.pos = 5, .data = "1"},
+                               insert_op{.pos = 3, .data = "2"},
+                               insert_op{.pos = 9, .data = "3"},
+                               insert_op{.pos = 13, .data = "4"},
+                               insert_op{.pos = 0, .data = "5"}}},
+        // a mid-insert breaks the addbuf-adjacency chain so the next end-append must
+        // NOT coalesce with the previous tail piece
+        test_case{.original = "",
+                  .expected = "abXcdefghi",
+                  .test_ops = {insert_op{.pos = 0, .data = "abc"},
+                               insert_op{.pos = 3, .data = "def"},
+                               insert_op{.pos = 2, .data = "X"},
+                               insert_op{.pos = 7, .data = "ghi"}}},
+        // boundary insert whose preceding piece is from the original buffer
+        // (must NOT coalesce; new piece is inserted in front of the existing add piece)
+        test_case{.original = "AB",
+                  .expected = "AYXB",
+                  .test_ops = {insert_op{.pos = 1, .data = "X"},
+                               insert_op{.pos = 1, .data = "Y"}}},
+        // inserting a long run of characters in the middle of the original buffer
+        test_case{.original = "AB",
+                  .expected = "A" + std::string(64, 'x') + "B",
+                  .test_ops = {insert_op{.pos = 1, .data = std::string(64, 'x')}}},
+        // realistic editing session: build a sentence with appends, mid-inserts and a prepend-like insert
+        test_case{.original = "The fox",
+                  .expected = "The very quick brown fox jumps over the lazy dog",
+                  .test_ops = {insert_op{.pos = 4, .data = "quick "},
+                               insert_op{.pos = 9, .data = " brown"},
+                               insert_op{.pos = 19, .data = " jumps"},
+                               insert_op{.pos = 25, .data = " over the lazy dog"},
+                               insert_op{.pos = 4, .data = "very "}}},
+        // alternating empty and non-empty inserts produce the same result as the
+        // non-empty inserts alone (empty inserts are no-ops)
+        test_case{.original = "abc",
+                  .expected = "aXbYc",
+                  .test_ops = {insert_op{.pos = 0, .data = ""},
+                               insert_op{.pos = 1, .data = "X"},
+                               insert_op{.pos = 2, .data = ""},
+                               insert_op{.pos = 3, .data = "Y"},
+                               insert_op{.pos = 5, .data = ""}}}));
 
 }  // namespace swg::ut

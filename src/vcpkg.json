@@ -2,6 +2,10 @@
   "name": "schwing",
   "version": "0.1.0",
   "dependencies": [
-    "gtest"
+    "gtest",
+    {
+      "name": "wil",
+      "platform": "windows"
+    }
   ]
 }

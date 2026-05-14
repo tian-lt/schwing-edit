@@ -1,5 +1,6 @@
 add_library(edit
   piecetable.cpp
+  plaindoc.cpp
 )
 
 target_include_directories(edit PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

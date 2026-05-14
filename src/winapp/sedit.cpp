@@ -1,3 +1,5 @@
+// std
+#include <optional>
 // windows
 #include <Windows.h>
 // wil
@@ -11,7 +13,13 @@
 namespace {
 
 class Sedit {
-  Sedit(HWND hwnd) : hwnd_(hwnd) {}
+  Sedit(HWND hwnd) : hwnd_(hwnd) {
+    double ratio = GetDpiForWindow(hwnd_) / 96.0;
+    caretPosX_ = 4 * ratio;
+    caretPosY_ = 2 * ratio;
+    caretWidth_ = 1 * ratio;
+    caretHeight_ = 24 * ratio;
+  }
 
  public:
   static bool Initialize() {
@@ -30,11 +38,19 @@ class Sedit {
   }
 
  private:
-  LRESULT OnChar() { return 0; }
+  LRESULT OnChar(char u8char) {
+    if (auto res = DigestChar(u8char); res.has_value()) {
+      doc_.insert(insPos_, *res);
+      insPos_ += res->size();
+      double ratio = GetDpiForWindow(hwnd_) / 96.0;
+      caretPosX_ += 8;
+      SetCaretPos(caretPosX_, caretPosY_);
+    }
+    return 0;
+  }
   LRESULT OnSetFocus() {
-    double ratio = GetDpiForWindow(hwnd_) / 96.0;
-    CreateCaret(hwnd_, nullptr, 1 * ratio, 24 * ratio);
-    SetCaretPos(4 * ratio, 2 * ratio);
+    CreateCaret(hwnd_, nullptr, caretWidth_, caretHeight_);
+    SetCaretPos(caretPosX_, caretPosY_);
     ShowCaret(hwnd_);
     return 0;
   }
@@ -47,6 +63,15 @@ class Sedit {
     PostQuitMessage(0);
     return 0;
   }
+  std::optional<std::string> DigestChar(char u8char) {
+    chbuf_ += u8char;
+    bool cont = (static_cast<unsigned char>(u8char) & 0xC0) == 0x80;
+    if (cont) {
+      return std::nullopt;
+    } else {
+      return std::exchange(chbuf_, {});
+    }
+  }
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -55,7 +80,7 @@ class Sedit {
         SetFocus(hwnd);
         return 0;
       case WM_CHAR:
-        return GetThis(hwnd)->OnChar();
+        return GetThis(hwnd)->OnChar(static_cast<char>(wparam));
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_KILLFOCUS:
@@ -77,7 +102,14 @@ class Sedit {
   }
 
  private:
-  HWND hwnd_;
+  HWND hwnd_ = nullptr;
+  size_t insPos_ = 0;
+  std::string chbuf_;
+  swg::plaindoc doc_;
+  int caretPosX_ = 0;
+  int caretPosY_ = 0;
+  int caretWidth_ = 0;
+  int caretHeight_ = 0;
 };
 
 ATOM SeditWndInit = Sedit::Initialize();

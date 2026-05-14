@@ -35,6 +35,7 @@ class MainWindow {
                        30 * dpiRatio, rc.right - rc.left, rc.bottom - rc.top - 30 * dpiRatio,
                        hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
+    SetFocus(editHwnd_.get());
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
   }

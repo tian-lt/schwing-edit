@@ -41,6 +41,10 @@ class MainWindow {
   }
 
  private:
+  LRESULT OnSetFocus() {
+    SetFocus(editHwnd_.get());
+    return 0;
+  }
   LRESULT OnDestroy() {
     PostQuitMessage(0);
     return 0;
@@ -49,6 +53,8 @@ class MainWindow {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_SETFOCUS:
+        return GetThis(hwnd)->OnSetFocus();
       case WM_CREATE: {
         auto info = reinterpret_cast<LPCREATESTRUCT>(lparam);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(info->lpCreateParams));
@@ -68,7 +74,7 @@ class MainWindow {
   wil::unique_hwnd editHwnd_;
 };
 
-ATOM MainWndInit = MainWindow::Initailize();
+const ATOM MainWndInit = MainWindow::Initailize();
 
 }  // namespace
 

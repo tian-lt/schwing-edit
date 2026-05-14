@@ -40,10 +40,23 @@ class Sedit {
  private:
   LRESULT OnChar(char u8char) {
     if (auto res = DigestChar(u8char); res.has_value()) {
-      doc_.insert(insPos_, *res);
-      insPos_ += res->size();
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
-      caretPosX_ += 8;
+      if (*res == "\r") {
+        caretPosX_ = 4 * ratio;
+        caretPosY_ += 24 * ratio;
+      } else if (*res == "\b") {
+        if (insPos_ == 0 || doc_.length() == 0) {
+          return 0;
+        } else {
+          --insPos_;
+          doc_.erase(insPos_, 1);
+          caretPosX_ -= 4 * ratio;
+        }
+      } else {
+        doc_.insert(insPos_, *res);
+        insPos_ += res->size();
+        caretPosX_ += 4 * ratio;
+      }
       SetCaretPos(caretPosX_, caretPosY_);
     }
     return 0;
@@ -112,6 +125,6 @@ class Sedit {
   int caretHeight_ = 0;
 };
 
-ATOM SeditWndInit = Sedit::Initialize();
+const ATOM SeditWndInit = Sedit::Initialize();
 
 }  // namespace

@@ -5,6 +5,7 @@
 #include <wil/result_macros.h>
 
 namespace {
+static_assert(std::is_same_v<TCHAR, wchar_t>);
 
 class MainWindow {
  public:
@@ -78,8 +79,8 @@ const ATOM MainWndInit = MainWindow::Initailize();
 
 }  // namespace
 
-int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine,
-                   _In_ int nCmdShow) {
+int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
+                    _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
   THROW_IF_WIN32_BOOL_FALSE(
       SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
   MainWindow mainWnd{hInstance, nCmdShow};

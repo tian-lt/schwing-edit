@@ -38,8 +38,8 @@ class Sedit {
   }
 
  private:
-  LRESULT OnChar(char u8char) {
-    if (auto res = DigestChar(u8char); res.has_value()) {
+  LRESULT OnChar(wchar_t uchar) {
+    if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
       if (*res == "\r") {
         caretPosX_ = 4 * ratio;
@@ -48,7 +48,7 @@ class Sedit {
         if (insPos_ == 0 || doc_.length() == 0) {
           return 0;
         } else {
-          --insPos_;
+          --insPos_;  // TODO: find the utf-8 char boundary
           doc_.erase(insPos_, 1);
           caretPosX_ -= 4 * ratio;
         }
@@ -57,6 +57,13 @@ class Sedit {
         insPos_ += res->size();
         caretPosX_ += 4 * ratio;
       }
+#ifdef _DEBUG
+      auto s = doc_.get(0, doc_.length());
+      int l = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+      std::wstring wstr(l, L'\0');
+      MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), wstr.data(),
+                          static_cast<int>(wstr.size()));
+#endif
       SetCaretPos(caretPosX_, caretPosY_);
     }
     return 0;
@@ -76,13 +83,26 @@ class Sedit {
     PostQuitMessage(0);
     return 0;
   }
-  std::optional<std::string> DigestChar(char u8char) {
-    chbuf_ += u8char;
-    bool cont = (static_cast<unsigned char>(u8char) & 0xC0) == 0x80;
-    if (cont) {
+  std::optional<std::string> DigestChar(wchar_t uchar) {
+    constexpr int HI = 0, LO = 1;
+    if (IS_HIGH_SURROGATE(uchar)) {
+      surrogate_[HI] = uchar;
       return std::nullopt;
     } else {
-      return std::exchange(chbuf_, {});
+      char mbstr[5];
+      surrogate_[LO] = uchar;
+      if (surrogate_[HI] == 0) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, &surrogate_[LO], 1, mbstr, std::size(mbstr),
+                                      nullptr, nullptr);
+        THROW_LAST_ERROR_IF(len <= 0);
+        return std::string(mbstr, len);
+      } else {
+        int len = WideCharToMultiByte(CP_UTF8, 0, surrogate_, 2, mbstr, std::size(mbstr), nullptr,
+                                      nullptr);
+        THROW_LAST_ERROR_IF(len <= 0);
+        surrogate_[HI] = 0;
+        return std::string(mbstr, len);
+      }
     }
   }
 
@@ -93,7 +113,7 @@ class Sedit {
         SetFocus(hwnd);
         return 0;
       case WM_CHAR:
-        return GetThis(hwnd)->OnChar(static_cast<char>(wparam));
+        return GetThis(hwnd)->OnChar(static_cast<wchar_t>(wparam));
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_KILLFOCUS:
@@ -117,8 +137,8 @@ class Sedit {
  private:
   HWND hwnd_ = nullptr;
   size_t insPos_ = 0;
-  std::string chbuf_;
   swg::plaindoc doc_;
+  wchar_t surrogate_[2] = {};
   int caretPosX_ = 0;
   int caretPosY_ = 0;
   int caretWidth_ = 0;

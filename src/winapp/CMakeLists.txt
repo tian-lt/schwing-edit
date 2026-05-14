@@ -1,4 +1,5 @@
 add_executable(app WIN32
+  sedit.cpp
   winmain.cpp
 )
 find_package(wil CONFIG REQUIRED)

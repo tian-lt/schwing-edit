@@ -1,7 +1,11 @@
 // std
 #include <optional>
 // windows
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <Windows.h>
+#undef NOMINMAX
+#undef WIN32_LEAN_AND_MEAN
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
@@ -42,14 +46,25 @@ class Sedit {
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
       if (*res == "\r") {
+        doc_.insert(insPos_, "\n");
+        insPos_ += 1;
         caretPosX_ = 4 * ratio;
         caretPosY_ += 24 * ratio;
       } else if (*res == "\b") {
         if (insPos_ == 0 || doc_.length() == 0) {
           return 0;
         } else {
-          --insPos_;  // TODO: find the utf-8 char boundary
-          doc_.erase(insPos_, 1);
+          size_t l = std::min(6uz, insPos_);
+          auto s = doc_.get(insPos_ - l, l);
+          size_t e = insPos_ - 1;
+          for (auto it = s.rbegin(); it != s.rend(); ++it) {
+            if ((*it & 0xC0) != 0x80) {
+              break;
+            }
+            --e;
+          }
+          doc_.erase(e, insPos_ - e);
+          insPos_ = e;
           caretPosX_ -= 4 * ratio;
         }
       } else {

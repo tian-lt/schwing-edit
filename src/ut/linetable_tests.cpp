@@ -20,7 +20,6 @@ struct expected_line {
 struct test_case {
   std::string content;
   eol mode = eol::lf;
-  double lineheight = 1.0;
   bool expected_mixed = false;
   std::vector<expected_line> expected_lines;
 };
@@ -32,7 +31,7 @@ TEST_P(linetable_tests, run) {
   const auto& p = GetParam();
   piecetable ptable{p.content};
   linetable table{eol::lf};
-  bool mixed = table.rebuild(ptable, p.lineheight, p.mode);
+  bool mixed = table.rebuild(ptable, p.mode);
   EXPECT_EQ(mixed, p.expected_mixed);
   EXPECT_EQ(table.eol_, p.mode);
   const auto& lines = table.linelist_;
@@ -40,7 +39,6 @@ TEST_P(linetable_tests, run) {
   for (size_t i = 0; i < lines.size(); ++i) {
     EXPECT_EQ(lines[i].beg, p.expected_lines[i].beg) << "line index " << i;
     EXPECT_EQ(lines[i].length, p.expected_lines[i].length) << "line index " << i;
-    EXPECT_EQ(lines[i].height, p.lineheight) << "line index " << i;
   }
 }
 
@@ -187,14 +185,80 @@ INSTANTIATE_TEST_CASE_P(
                   .mode = eol::crlf,
                   .expected_lines = {{.beg = 0, .length = 257}, {.beg = 257, .length = 10}}}));
 
+namespace {
+struct line_at_pos_case {
+  std::string content;
+  eol mode = eol::lf;
+  // each query is (pos, expected line index)
+  std::vector<std::pair<size_t, size_t>> queries;
+};
+}  // namespace
+
+struct linetable_line_at_pos_tests : ::testing::TestWithParam<line_at_pos_case> {};
+
+TEST_P(linetable_line_at_pos_tests, run) {
+  const auto& p = GetParam();
+  piecetable ptable{p.content};
+  linetable table{eol::lf};
+  table.rebuild(ptable, p.mode);
+  for (const auto& [pos, expected] : p.queries) {
+    EXPECT_EQ(table.line_at_pos(pos), expected) << "pos=" << pos;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    basic, linetable_line_at_pos_tests,
+    ::testing::Values(
+        // empty content: any pos maps to line 0
+        line_at_pos_case{.content = "", .mode = eol::lf, .queries = {{0, 0}, {1, 0}, {100, 0}}},
+        // single line without terminator: every in-range pos is on line 0
+        line_at_pos_case{.content = "hello",
+                         .mode = eol::lf,
+                         .queries = {{0, 0}, {1, 0}, {4, 0}, {5, 0}, {100, 0}}},
+        // three lf-terminated lines: lines start at 0, 2, 4
+        line_at_pos_case{.content = "a\nb\nc\n",
+                         .mode = eol::lf,
+                         .queries = {{0, 0},
+                                     {1, 0},  // the '\n' belongs to line 0
+                                     {2, 1},
+                                     {3, 1},
+                                     {4, 2},
+                                     {5, 2},
+                                     {6, 2},  // past end clamps to last line
+                                     {100, 2}}},
+        // leading empty line: lines start at 0, 1
+        line_at_pos_case{
+            .content = "\nab", .mode = eol::lf, .queries = {{0, 0}, {1, 1}, {2, 1}, {3, 1}}},
+        // crlf-terminated lines: lines start at 0, 4
+        line_at_pos_case{.content = "ab\r\ncd\r\n",
+                         .mode = eol::crlf,
+                         .queries = {{0, 0},
+                                     {1, 0},
+                                     {2, 0},  // '\r'
+                                     {3, 0},  // '\n'
+                                     {4, 1},
+                                     {5, 1},
+                                     {7, 1},
+                                     {8, 1}}},
+        // cr-terminated lines: lines start at 0, 3, 6
+        line_at_pos_case{.content = "ab\rcd\ref\r",
+                         .mode = eol::cr,
+                         .queries = {{0, 0}, {2, 0}, {3, 1}, {5, 1}, {6, 2}, {8, 2}}},
+        // mixed eols, lines start at 0, 2, 4, 7
+        line_at_pos_case{
+            .content = "a\nb\rc\r\nd",
+            .mode = eol::lf,
+            .queries = {
+                {0, 0}, {1, 0}, {2, 1}, {3, 1}, {4, 2}, {5, 2}, {6, 2}, {7, 3}, {100, 3}}}));
+
 TEST(linetable_tests, rebuild_clears_previous_lines) {
   piecetable p1{"a\nb\nc\n"};
   linetable table{eol::lf};
-  EXPECT_FALSE(table.rebuild(p1, 1.0, eol::lf));
+  EXPECT_FALSE(table.rebuild(p1, eol::lf));
   EXPECT_EQ(table.linelist_.size(), 3u);
 
   piecetable p2{"x\ny\n"};
-  EXPECT_FALSE(table.rebuild(p2, 1.0, eol::lf));
+  EXPECT_FALSE(table.rebuild(p2, eol::lf));
   ASSERT_EQ(table.linelist_.size(), 2u);
   EXPECT_EQ(table.linelist_[0].beg, 0u);
   EXPECT_EQ(table.linelist_[0].length, 2u);
@@ -202,7 +266,7 @@ TEST(linetable_tests, rebuild_clears_previous_lines) {
   EXPECT_EQ(table.linelist_[1].length, 2u);
 
   piecetable p3{""};
-  EXPECT_FALSE(table.rebuild(p3, 1.0, eol::lf));
+  EXPECT_FALSE(table.rebuild(p3, eol::lf));
   EXPECT_TRUE(table.linelist_.empty());
 }
 
@@ -211,7 +275,7 @@ TEST(linetable_tests, rebuild_uses_piecetable_after_edits) {
   ptable.insert(5, "\nworld\n");
   ptable.insert(ptable.length(), "!");
   linetable table{eol::lf};
-  bool mixed = table.rebuild(ptable, 2.5, eol::lf);
+  bool mixed = table.rebuild(ptable, eol::lf);
   EXPECT_FALSE(mixed);
   const auto& lines = table.linelist_;
   ASSERT_EQ(lines.size(), 3u);
@@ -221,9 +285,6 @@ TEST(linetable_tests, rebuild_uses_piecetable_after_edits) {
   EXPECT_EQ(lines[1].length, 6u);  // "world\n"
   EXPECT_EQ(lines[2].beg, 12u);
   EXPECT_EQ(lines[2].length, 1u);  // "!"
-  for (const auto& l : lines) {
-    EXPECT_EQ(l.height, 2.5);
-  }
 }
 
 }  // namespace swg::ut::linetable_ut

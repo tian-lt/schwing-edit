@@ -26,12 +26,12 @@ class linetable {
   struct line {
     size_t beg = 0;     // position of the first character of the line
     size_t length = 0;  // length of the line, including linefeed (e.g. \n, \r\n, etc. )
-    double height = 0;  // the height of the tallest glyph in the line, in dip
   };
 
  public:
   explicit linetable(eol eol) : eol_(eol) {}
-  bool rebuild(const piecetable& ptable, double lineheight, eol eol);
+  bool rebuild(const piecetable& ptable, eol eol);
+  size_t line_at_pos(size_t pos) const;
 
  private:
   std::vector<line> linelist_;

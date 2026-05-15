@@ -1,9 +1,12 @@
+// std
+#include <algorithm>
+#include <iterator>
 // swg
 #include "linetable.hpp"
 
 namespace swg {
 
-bool linetable::rebuild(const piecetable& ptable, double lineheight, eol eol) {
+bool linetable::rebuild(const piecetable& ptable, eol eol) {
   eol_ = eol;
   linelist_.clear();
   constexpr size_t BUF_SIZE = 256;
@@ -15,8 +18,7 @@ bool linetable::rebuild(const piecetable& ptable, double lineheight, eol eol) {
   size_t pending_cr_pos = 0;  // absolute position of that bare '\r'
   unsigned eol_mask = 0;      // bit 0: lf, bit 1: crlf, bit 2: cr
   auto push_line = [&](size_t end_exclusive) {
-    linelist_.push_back(
-        line{.beg = line_beg, .length = end_exclusive - line_beg, .height = lineheight});
+    linelist_.push_back(line{.beg = line_beg, .length = end_exclusive - line_beg});
     line_beg = end_exclusive;
   };
   while (pos < total_len) {
@@ -57,6 +59,14 @@ bool linetable::rebuild(const piecetable& ptable, double lineheight, eol eol) {
   }
   // mixed EOLs iff more than one distinct terminator kind was observed
   return (eol_mask & (eol_mask - 1)) != 0;
+}
+
+size_t linetable::line_at_pos(size_t pos) const {
+  auto it = std::ranges::upper_bound(linelist_, pos, {}, &line::beg);
+  if (it == linelist_.begin()) {
+    return 0;
+  }
+  return std::distance(linelist_.begin(), it) - 1;
 }
 
 }  // namespace swg

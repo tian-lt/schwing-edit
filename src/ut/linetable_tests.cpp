@@ -287,4 +287,277 @@ TEST(linetable_tests, rebuild_uses_piecetable_after_edits) {
   EXPECT_EQ(lines[2].length, 1u);  // "!"
 }
 
+namespace {
+struct insert_op_step {
+  size_t pos;
+  std::string data;
+  bool expected_mixed = false;
+};
+
+struct insert_case {
+  std::string original;
+  eol mode = eol::lf;
+  std::vector<insert_op_step> ops;
+  std::vector<expected_line> expected_lines;
+};
+}  // namespace
+
+struct linetable_insert_tests : ::testing::TestWithParam<insert_case> {};
+
+TEST_P(linetable_insert_tests, run) {
+  const auto& p = GetParam();
+  piecetable ptable{p.original};
+  linetable table{eol::lf};
+  table.rebuild(ptable, p.mode);
+  for (const auto& step : p.ops) {
+    bool mixed = table.insert(step.pos, step.data);
+    EXPECT_EQ(mixed, step.expected_mixed) << "pos=" << step.pos << " data=" << step.data;
+  }
+  const auto& lines = table.linelist_;
+  ASSERT_EQ(lines.size(), p.expected_lines.size());
+  for (size_t i = 0; i < lines.size(); ++i) {
+    EXPECT_EQ(lines[i].beg, p.expected_lines[i].beg) << "line index " << i;
+    EXPECT_EQ(lines[i].length, p.expected_lines[i].length) << "line index " << i;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(no_terminator, linetable_insert_tests,
+                        ::testing::Values(
+                            // empty insertion is a no-op
+                            insert_case{.original = "hello\n",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 0, .data = ""}, {.pos = 3, .data = ""}},
+                                        .expected_lines = {{.beg = 0, .length = 6}}},
+                            // insert in the middle of a single line: line grows, no new lines
+                            insert_case{.original = "abef",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 2, .data = "cd"}},
+                                        .expected_lines = {{.beg = 0, .length = 6}}},
+                            // insert at the very beginning of the table
+                            insert_case{.original = "world",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 0, .data = "hello "}},
+                                        .expected_lines = {{.beg = 0, .length = 11}}},
+                            // insert at the very end of the table (after last char of last line)
+                            insert_case{.original = "hello",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 5, .data = " world"}},
+                                        .expected_lines = {{.beg = 0, .length = 11}}},
+                            // insert into the middle of a multi-line document: only the host line
+                            // grows, following lines are shifted right by data.size()
+                            insert_case{.original = "ab\ncd\nef\n",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 4, .data = "XYZ"}},
+                                        .expected_lines = {{.beg = 0, .length = 3},
+                                                           {.beg = 3, .length = 6},  // "cXYZd\n"
+                                                           {.beg = 9, .length = 3}}}));
+
+INSTANTIATE_TEST_CASE_P(
+    single_terminator, linetable_insert_tests,
+    ::testing::Values(
+        // insert a single lf into the middle of a single line: splits into two
+        insert_case{.original = "abcd",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 2, .data = "\n"}},
+                    .expected_lines = {{.beg = 0, .length = 3}, {.beg = 3, .length = 2}}},
+        // insert "X\nY" splits the host line and inserts text on both sides of the break
+        insert_case{.original = "abcd",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 2, .data = "X\nY"}},
+                    .expected_lines = {{.beg = 0, .length = 4},    // "abX\n"
+                                       {.beg = 4, .length = 3}}},  // "Ycd"
+        // insert a lone \r into the middle of a single line
+        insert_case{.original = "abcd",
+                    .mode = eol::cr,
+                    .ops = {{.pos = 2, .data = "\r"}},
+                    .expected_lines = {{.beg = 0, .length = 3}, {.beg = 3, .length = 2}}},
+        // insert \r\n into the middle of a single line
+        insert_case{.original = "abcd",
+                    .mode = eol::crlf,
+                    .ops = {{.pos = 2, .data = "\r\n"}},
+                    .expected_lines = {{.beg = 0, .length = 4}, {.beg = 4, .length = 2}}},
+        // insert at the start of a line that is itself the start of the document
+        insert_case{.original = "abc",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 0, .data = "X\n"}},
+                    .expected_lines = {{.beg = 0, .length = 2}, {.beg = 2, .length = 3}}},
+        // insert at the end of a multi-line document (pos == total length)
+        insert_case{.original = "ab\ncd",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 5, .data = "\nef"}},
+                    .expected_lines = {{.beg = 0, .length = 3},
+                                       {.beg = 3, .length = 3},  // "cd\n"
+                                       {.beg = 6, .length = 2}}}));
+
+INSTANTIATE_TEST_CASE_P(multiple_terminators, linetable_insert_tests,
+                        ::testing::Values(
+                            // insert several lf-terminated lines into the middle of a single line
+                            insert_case{.original = "abcd",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 2, .data = "X\nY\nZ\n"}},
+                                        .expected_lines = {{.beg = 0, .length = 4},    // "abX\n"
+                                                           {.beg = 4, .length = 2},    // "Y\n"
+                                                           {.beg = 6, .length = 2},    // "Z\n"
+                                                           {.beg = 8, .length = 2}}},  // "cd"
+                            // insert multi-line content at the beginning of a multi-line document
+                            insert_case{.original = "x\ny\n",
+                                        .mode = eol::lf,
+                                        .ops = {{.pos = 0, .data = "a\nb\n"}},
+                                        .expected_lines = {{.beg = 0, .length = 2},
+                                                           {.beg = 2, .length = 2},
+                                                           {.beg = 4, .length = 2},
+                                                           {.beg = 6, .length = 2}}},
+                            // insert two crlf-terminated lines
+                            insert_case{.original = "abcd",
+                                        .mode = eol::crlf,
+                                        .ops = {{.pos = 2, .data = "X\r\nY\r\n"}},
+                                        .expected_lines = {{.beg = 0, .length = 5},  // "abX\r\n"
+                                                           {.beg = 5, .length = 3},  // "Y\r\n"
+                                                           {.beg = 8, .length = 2}}}));
+
+INSTANTIATE_TEST_CASE_P(
+    mixed_in_insert, linetable_insert_tests,
+    ::testing::Values(
+        // inserted data contains lf and bare cr -> returns true
+        insert_case{.original = "abcd",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 2, .data = "X\nY\rZ", .expected_mixed = true}},
+                    .expected_lines = {{.beg = 0, .length = 4},    // "abX\n"
+                                       {.beg = 4, .length = 2},    // "Y\r"
+                                       {.beg = 6, .length = 3}}},  // "Zcd"
+        // inserted data contains lf and crlf -> returns true
+        insert_case{.original = "ab",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 1, .data = "X\nY\r\n", .expected_mixed = true}},
+                    .expected_lines = {{.beg = 0, .length = 3},    // "aX\n"
+                                       {.beg = 3, .length = 3},    // "Y\r\n"
+                                       {.beg = 6, .length = 1}}},  // "b"
+        // inserted data ends with a bare \r (still classified as cr terminator)
+        insert_case{.original = "abc",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 1, .data = "\nX\r", .expected_mixed = true}},
+                    .expected_lines = {{.beg = 0, .length = 2},      // "a\n"
+                                       {.beg = 2, .length = 2},      // "X\r"
+                                       {.beg = 4, .length = 2}}}));  // "bc"
+
+INSTANTIATE_TEST_CASE_P(
+    sequential_inserts, linetable_insert_tests,
+    ::testing::Values(
+        // build "a\nb\nc" with three appends; final state matches a fresh rebuild
+        insert_case{
+            .original = "",
+            .mode = eol::lf,
+            .ops = {{.pos = 0, .data = "a\n"}, {.pos = 2, .data = "b\n"}, {.pos = 4, .data = "c"}},
+            .expected_lines = {{.beg = 0, .length = 2},
+                               {.beg = 2, .length = 2},
+                               {.beg = 4, .length = 1}}},
+        // multiple inserts into different positions of the same line
+        insert_case{.original = "abef",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 2, .data = "cd"}, {.pos = 6, .data = "gh"}},
+                    .expected_lines = {{.beg = 0, .length = 8}}},
+        // insert that crosses into a later line, then another insert before it
+        insert_case{.original = "ab\ncd",
+                    .mode = eol::lf,
+                    .ops = {{.pos = 5, .data = "\nef"}, {.pos = 0, .data = "Z\n"}},
+                    .expected_lines = {{.beg = 0, .length = 2},  // "Z\n"
+                                       {.beg = 2, .length = 3},  // "ab\n"
+                                       {.beg = 5, .length = 3},  // "cd\n"
+                                       {.beg = 8, .length = 2}}}));
+
+// insert(pos, data) followed by a fresh rebuild must produce the same linelist_
+namespace {
+struct insert_vs_rebuild_case {
+  std::string original;
+  eol mode = eol::lf;
+  size_t pos;
+  std::string data;
+};
+}  // namespace
+
+class linetable_insert_matches_rebuild_param
+    : public ::testing::TestWithParam<insert_vs_rebuild_case> {};
+
+TEST_P(linetable_insert_matches_rebuild_param, equivalent) {
+  const auto& p = GetParam();
+
+  // path A: rebuild on the original, then incremental insert
+  piecetable ptable_a{p.original};
+  linetable table_a{eol::lf};
+  table_a.rebuild(ptable_a, p.mode);
+  table_a.insert(p.pos, p.data);
+
+  // path B: apply the insert via piecetable, then full rebuild
+  piecetable ptable_b{p.original};
+  ptable_b.insert(p.pos, p.data);
+  linetable table_b{eol::lf};
+  table_b.rebuild(ptable_b, p.mode);
+
+  const auto& la = table_a.linelist_;
+  const auto& lb = table_b.linelist_;
+  ASSERT_EQ(la.size(), lb.size());
+  for (size_t i = 0; i < la.size(); ++i) {
+    EXPECT_EQ(la[i].beg, lb[i].beg) << "line " << i;
+    EXPECT_EQ(la[i].length, lb[i].length) << "line " << i;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    cases, linetable_insert_matches_rebuild_param,
+    ::testing::Values(
+        // insert without any terminator into a single line
+        insert_vs_rebuild_case{.original = "abcdef", .mode = eol::lf, .pos = 3, .data = "XYZ"},
+        // insert at start
+        insert_vs_rebuild_case{.original = "abc", .mode = eol::lf, .pos = 0, .data = "X\nY\n"},
+        // insert at end of last line
+        insert_vs_rebuild_case{.original = "abc", .mode = eol::lf, .pos = 3, .data = "\ndef"},
+        // insert into middle of a multi-line lf document, splitting the middle line
+        insert_vs_rebuild_case{
+            .original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 4, .data = "X\nY"},
+        // insert into a crlf document
+        insert_vs_rebuild_case{
+            .original = "ab\r\ncd\r\n", .mode = eol::crlf, .pos = 5, .data = "X\r\nY"},
+        // insert that contains all three terminator kinds in cr mode
+        insert_vs_rebuild_case{
+            .original = "abcd", .mode = eol::cr, .pos = 2, .data = "X\nY\rZ\r\nW"}));
+
+TEST(linetable_tests, insert_into_empty_table) {
+  // Inserting into a fresh, never-rebuilt table should still work and seed line 0.
+  linetable table{eol::lf};
+  EXPECT_FALSE(table.insert(0, "hello"));
+  ASSERT_EQ(table.linelist_.size(), 1u);
+  EXPECT_EQ(table.linelist_[0].beg, 0u);
+  EXPECT_EQ(table.linelist_[0].length, 5u);
+
+  // Insert a terminator to split the seeded line.
+  EXPECT_FALSE(table.insert(5, "\nworld"));
+  ASSERT_EQ(table.linelist_.size(), 2u);
+  EXPECT_EQ(table.linelist_[0].beg, 0u);
+  EXPECT_EQ(table.linelist_[0].length, 6u);  // "hello\n"
+  EXPECT_EQ(table.linelist_[1].beg, 6u);
+  EXPECT_EQ(table.linelist_[1].length, 5u);  // "world"
+}
+
+TEST(linetable_tests, insert_matches_rebuild) {
+  // Smoke test exercising the same equivalence at a hand-picked spot, kept as a
+  // non-parametrized test so it can be debugged easily.
+  piecetable ptable_a{"the quick fox"};
+  linetable table_a{eol::lf};
+  table_a.rebuild(ptable_a, eol::lf);
+  table_a.insert(10, "brown\n");
+
+  piecetable ptable_b{"the quick fox"};
+  ptable_b.insert(10, "brown\n");
+  linetable table_b{eol::lf};
+  table_b.rebuild(ptable_b, eol::lf);
+
+  const auto& la = table_a.linelist_;
+  const auto& lb = table_b.linelist_;
+  ASSERT_EQ(la.size(), lb.size());
+  for (size_t i = 0; i < la.size(); ++i) {
+    EXPECT_EQ(la[i].beg, lb[i].beg);
+    EXPECT_EQ(la[i].length, lb[i].length);
+  }
+}
+
 }  // namespace swg::ut::linetable_ut

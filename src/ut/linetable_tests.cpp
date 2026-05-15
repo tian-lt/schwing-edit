@@ -26,7 +26,7 @@ struct test_case {
 };
 }  // namespace
 
-struct linetable_tests : public ::testing::TestWithParam<test_case> {};
+struct linetable_tests : ::testing::TestWithParam<test_case> {};
 
 TEST_P(linetable_tests, run) {
   const auto& p = GetParam();
@@ -34,8 +34,8 @@ TEST_P(linetable_tests, run) {
   linetable table{eol::lf};
   bool mixed = table.rebuild(ptable, p.lineheight, p.mode);
   EXPECT_EQ(mixed, p.expected_mixed);
-  EXPECT_EQ(table.get_eol(), p.mode);
-  const auto& lines = table.lines();
+  EXPECT_EQ(table.eol_, p.mode);
+  const auto& lines = table.linelist_;
   ASSERT_EQ(lines.size(), p.expected_lines.size());
   for (size_t i = 0; i < lines.size(); ++i) {
     EXPECT_EQ(lines[i].beg, p.expected_lines[i].beg) << "line index " << i;
@@ -191,19 +191,19 @@ TEST(linetable_tests, rebuild_clears_previous_lines) {
   piecetable p1{"a\nb\nc\n"};
   linetable table{eol::lf};
   EXPECT_FALSE(table.rebuild(p1, 1.0, eol::lf));
-  EXPECT_EQ(table.lines().size(), 3u);
+  EXPECT_EQ(table.linelist_.size(), 3u);
 
   piecetable p2{"x\ny\n"};
   EXPECT_FALSE(table.rebuild(p2, 1.0, eol::lf));
-  ASSERT_EQ(table.lines().size(), 2u);
-  EXPECT_EQ(table.lines()[0].beg, 0u);
-  EXPECT_EQ(table.lines()[0].length, 2u);
-  EXPECT_EQ(table.lines()[1].beg, 2u);
-  EXPECT_EQ(table.lines()[1].length, 2u);
+  ASSERT_EQ(table.linelist_.size(), 2u);
+  EXPECT_EQ(table.linelist_[0].beg, 0u);
+  EXPECT_EQ(table.linelist_[0].length, 2u);
+  EXPECT_EQ(table.linelist_[1].beg, 2u);
+  EXPECT_EQ(table.linelist_[1].length, 2u);
 
   piecetable p3{""};
   EXPECT_FALSE(table.rebuild(p3, 1.0, eol::lf));
-  EXPECT_TRUE(table.lines().empty());
+  EXPECT_TRUE(table.linelist_.empty());
 }
 
 TEST(linetable_tests, rebuild_uses_piecetable_after_edits) {
@@ -213,7 +213,7 @@ TEST(linetable_tests, rebuild_uses_piecetable_after_edits) {
   linetable table{eol::lf};
   bool mixed = table.rebuild(ptable, 2.5, eol::lf);
   EXPECT_FALSE(mixed);
-  const auto& lines = table.lines();
+  const auto& lines = table.linelist_;
   ASSERT_EQ(lines.size(), 3u);
   EXPECT_EQ(lines[0].beg, 0u);
   EXPECT_EQ(lines[0].length, 6u);  // "hello\n"

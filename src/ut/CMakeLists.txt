@@ -3,6 +3,7 @@ add_executable(ut
   piecetable_tests.cpp
 )
 
+target_compile_definitions(ut PRIVATE SWGUT)
 find_package(GTest CONFIG REQUIRED)
 target_link_libraries(ut PRIVATE
   GTest::gtest

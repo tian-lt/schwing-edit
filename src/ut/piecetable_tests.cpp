@@ -32,7 +32,7 @@ struct test_case {
 };
 }  // namespace
 
-struct piecetable_tests : public ::testing::TestWithParam<test_case> {};
+struct piecetable_tests : ::testing::TestWithParam<test_case> {};
 
 TEST_P(piecetable_tests, run) {
   auto& p = GetParam();

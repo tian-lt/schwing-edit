@@ -1,4 +1,5 @@
 add_library(edit
+  linetable.cpp
   piecetable.cpp
   plaindoc.cpp
 )

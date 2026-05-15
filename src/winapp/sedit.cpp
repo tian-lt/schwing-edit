@@ -17,7 +17,7 @@
 namespace {
 
 class Sedit {
-  Sedit(HWND hwnd) : hwnd_(hwnd) {
+  Sedit(HWND hwnd, double fontsize) : hwnd_(hwnd), doc_(fontsize, swg::eol::crlf) {
     double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;
@@ -75,7 +75,7 @@ class Sedit {
 #ifdef _DEBUG
       auto s = doc_.get(0, doc_.length());
       int l = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-      std::wstring wstr(l, L'\0');
+      std::wstring wstr((size_t)l, 0);
       MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), wstr.data(),
                           static_cast<int>(wstr.size()));
 #endif
@@ -134,7 +134,7 @@ class Sedit {
       case WM_KILLFOCUS:
         return GetThis(hwnd)->OnKillFocus();
       case WM_CREATE:
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(new Sedit(hwnd)));
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(new Sedit(hwnd, 12.0)));
         return 0;
       case WM_DESTROY: {
         auto self = GetThis(hwnd);

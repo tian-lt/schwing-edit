@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +18,7 @@ class piecetable {
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
   std::string get(size_t pos, size_t length) const;
+  void get_to(size_t pos, std::span<char> out) const;
   size_t length() const;
 
  private:

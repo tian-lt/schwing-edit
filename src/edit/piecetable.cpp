@@ -1,5 +1,6 @@
 // std
 #include <cassert>
+#include <cstring>
 #include <stdexcept>
 
 // swg
@@ -22,6 +23,33 @@ struct piecetable::impl {
     }
     return result;
   }
+
+  static void copy_out(const piecetable* self, size_t pos, size_t length, char* out) {
+    if (length == 0) {
+      if (pos > self->length()) {
+        throw std::out_of_range{"pos out of range"};
+      }
+      return;
+    }
+    auto [idx, beg] = find_piece(self, pos);
+    if (idx == self->piecelist_.size()) {
+      throw std::out_of_range{"pos out of range"};
+    }
+    auto offset = pos - beg;
+    while (length > 0) {
+      if (idx == self->piecelist_.size()) {
+        throw std::out_of_range{"length out of range"};
+      }
+      const auto& piece = self->piecelist_[idx];
+      auto len = std::min(piece.length - offset, length);
+      const auto& buf = piece.is_original ? self->initbuf_ : std::string_view{self->addbuf_};
+      std::memcpy(out, buf.data() + piece.offset + offset, len);
+      out += len;
+      length -= len;
+      ++idx;
+      offset = 0;
+    }
+  }
 };
 
 size_t piecetable::length() const {
@@ -34,31 +62,13 @@ size_t piecetable::length() const {
 
 std::string piecetable::get(size_t pos, size_t length) const {
   std::string result;
-  if (length == 0) {
-    if (pos > this->length()) {
-      throw std::out_of_range{"pos out of range"};
-    }
-    return result;
-  }
-  auto [idx, beg] = impl::find_piece(this, pos);
-  if (idx == piecelist_.size()) {
-    throw std::out_of_range{"pos out of range"};
-  }
-  result.reserve(length);
-  auto offset = pos - beg;
-  while (length > 0) {
-    if (idx == piecelist_.size()) {
-      throw std::out_of_range{"length out of range"};
-    }
-    auto& piece = piecelist_[idx];
-    auto len = std::min(piece.length - offset, length);
-    const auto& buf = piece.is_original ? initbuf_ : std::string_view{addbuf_};
-    result.append(buf.data() + piece.offset + offset, len);
-    length -= len;
-    ++idx;
-    offset = 0;
-  }
+  result.resize(length);
+  impl::copy_out(this, pos, length, result.data());
   return result;
+}
+
+void piecetable::get_to(size_t pos, std::span<char> out) const {
+  impl::copy_out(this, pos, out.size(), out.data());
 }
 
 void piecetable::insert(size_t pos, std::string_view data) {

@@ -48,7 +48,11 @@ TEST_P(piecetable_tests, run) {
         },
         step);
   }
-  EXPECT_EQ(table.get(p.get_pos.value_or(0), p.get_length.value_or(table.length())), p.expected);
+  auto res1 = table.get(p.get_pos.value_or(0), p.get_length.value_or(table.length()));
+  std::string res2(p.get_length.value_or(table.length()), 0);
+  table.get_to(p.get_pos.value_or(0), res2);
+  EXPECT_EQ(res1, p.expected);
+  EXPECT_EQ(res2, p.expected);
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -322,4 +326,4 @@ INSTANTIATE_TEST_CASE_P(
                   .get_length = 1,
                   .test_ops = {insert_op{.pos = 3, .data = "XY"}}}));
 
-}  // namespace swg::ut::piecetable
+}  // namespace swg::ut::piecetable_ut

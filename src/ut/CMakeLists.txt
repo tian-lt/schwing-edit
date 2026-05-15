@@ -1,4 +1,5 @@
 add_executable(ut
+  linetable_tests.cpp
   piecetable_tests.cpp
 )
 

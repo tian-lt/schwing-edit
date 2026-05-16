@@ -6,6 +6,8 @@
 #include <wil/result_macros.h>
 // swg
 #include "resource.hpp"
+// app
+#include "res.h"
 
 #pragma comment(lib, "Dwmapi.lib")
 
@@ -15,14 +17,19 @@ static_assert(std::is_same_v<TCHAR, wchar_t>);
 class MainWindow {
  public:
   static ATOM Initailize() {
+    const HINSTANCE hinst = GetModuleHandle(nullptr);
     WNDCLASSEX wcex{
         .cbSize = sizeof(WNDCLASSEX),
         .style = CS_HREDRAW | CS_VREDRAW,
         .lpfnWndProc = WndProc,
-        .hInstance = GetModuleHandle(nullptr),
+        .hInstance = hinst,
+        .hIcon = (HICON)LoadImage(hinst, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 32, 32,
+                                  LR_DEFAULTCOLOR),
         .hCursor = LoadCursor(nullptr, IDC_ARROW),
         .hbrBackground = CreateSolidBrush(RGB(0, 0, 0)),
         .lpszClassName = TEXT("MainWindowClass"),
+        .hIconSm = (HICON)LoadImage(hinst, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16, 16,
+                                    LR_DEFAULTCOLOR),
     };
     ATOM atom = RegisterClassEx(&wcex);
     THROW_LAST_ERROR_IF(atom == 0);

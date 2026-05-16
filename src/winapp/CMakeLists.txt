@@ -1,4 +1,5 @@
 add_executable(app WIN32
+  res.rc
   sedit.cpp
   winmain.cpp
 )

@@ -1,4 +1,5 @@
 // std
+#include <format>
 #include <optional>
 // windows
 #define WIN32_LEAN_AND_MEAN
@@ -16,8 +17,12 @@
 
 namespace {
 
+const double default_font_size = 12.0;
+const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
+
 class Sedit {
-  Sedit(HWND hwnd, double fontsize) : hwnd_(hwnd), doc_(fontsize, swg::eol::crlf) {
+  Sedit(HWND hwnd, std::string fontpath, double fontsize)
+      : hwnd_(hwnd), doc_(std::move(fontpath), fontsize, swg::eol::crlf) {
     double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;
@@ -46,8 +51,8 @@ class Sedit {
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
       if (*res == "\r") {
-        doc_.insert(insPos_, "\n");
-        insPos_ += 1;
+        doc_.insert(insPos_, "\r\n");
+        insPos_ += 2;
         caretPosX_ = 4 * ratio;
         caretPosY_ += 24 * ratio;
       } else if (*res == "\b") {
@@ -78,6 +83,7 @@ class Sedit {
       std::wstring wstr((size_t)l, 0);
       MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), wstr.data(),
                           static_cast<int>(wstr.size()));
+      OutputDebugStringW(std::format(L"{}\n", wstr).c_str());
 #endif
       SetCaretPos(caretPosX_, caretPosY_);
     }
@@ -134,7 +140,9 @@ class Sedit {
       case WM_KILLFOCUS:
         return GetThis(hwnd)->OnKillFocus();
       case WM_CREATE:
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(new Sedit(hwnd, 12.0)));
+        SetWindowLongPtr(
+            hwnd, GWLP_USERDATA,
+            reinterpret_cast<LONG_PTR>(new Sedit(hwnd, default_font_path, default_font_size)));
         return 0;
       case WM_DESTROY: {
         auto self = GetThis(hwnd);

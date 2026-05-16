@@ -3,6 +3,8 @@
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
+// swg
+#include "resource.hpp"
 
 namespace {
 static_assert(std::is_same_v<TCHAR, wchar_t>);
@@ -81,6 +83,7 @@ const ATOM MainWndInit = MainWindow::Initailize();
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
+  swg::initialize();
   THROW_IF_WIN32_BOOL_FALSE(
       SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
   MainWindow mainWnd{hInstance, nCmdShow};
@@ -89,5 +92,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
     TranslateMessage(&msg);
     DispatchMessage(&msg);
   }
+  swg::uninitialize();
   return 0;
 }

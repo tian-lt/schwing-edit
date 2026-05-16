@@ -1,6 +1,7 @@
 // windows
-#include <Windows.h>
 #include <dwmapi.h>
+
+#include "win.hpp"
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>

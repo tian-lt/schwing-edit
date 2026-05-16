@@ -2,11 +2,7 @@
 #include <format>
 #include <optional>
 // windows
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#undef NOMINMAX
-#undef WIN32_LEAN_AND_MEAN
+#include "win.hpp"
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>

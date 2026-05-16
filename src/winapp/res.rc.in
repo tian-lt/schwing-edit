@@ -1,0 +1,31 @@
+﻿#include "win.hpp"
+#include "res.h"
+
+IDI_APP_ICON ICON "app_icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @VERSION_MAJOR@,@VERSION_MINOR@,@VERSION_PATCH@,0
+ PRODUCTVERSION @VERSION_MAJOR@,@VERSION_MINOR@,@VERSION_PATCH@,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Tian Liao"
+            VALUE "FileDescription",  "Schwing Edit - High-performance text editor"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "ProductName",      "Schwing Edit"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+            VALUE "OriginalFilename", "SchwingEdit.exe"
+            VALUE "LegalCopyright",   "© 2026 Tian Liao"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

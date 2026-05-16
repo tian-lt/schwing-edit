@@ -1,4 +1,5 @@
 // std
+#include <format>
 #include <stdexcept>
 // swg
 #include "resource.hpp"
@@ -9,24 +10,25 @@ FT_Library ft_library = nullptr;
 
 namespace details {
 
-void ft_face_deleter::operator()(FT_Face ptr) {
-  if (FT_Done_Face(ptr)) {
-    throw std::runtime_error{"Failed to free FT_Face"};
-  }
-}
+void ft_face_deleter::operator()(FT_Face ptr) { check_fterror(FT_Done_Face(ptr)); }
+
+void hb_font_deleter::operator()(hb_font_t* ptr) { hb_font_destroy(ptr); }
 
 }  // namespace details
 
-void initialize() {
-  if (FT_Init_FreeType(&ft_library)) {
-    throw std::runtime_error{"Failed to initialize FreeType library"};
+void check_fterror(FT_Error ec) {
+  if (ec) {
+    throw std::runtime_error{std::format("freetype error: {}", FT_Error_String(ec))};
   }
 }
-void uninitialize() {
-  if (FT_Done_FreeType(ft_library)) {
-    throw std::runtime_error{"Failed to uninitialize FreeType library"};
+void check_ptr(void* ptr, const char* message) {
+  if (!ptr) {
+    throw std::runtime_error{std::format("pointer is null. {}", message)};
   }
 }
+
+void initialize() { check_fterror(FT_Init_FreeType(&ft_library)); }
+void uninitialize() { check_fterror(FT_Done_FreeType(ft_library)); }
 
 FT_Library get_ft_library() { return ft_library; }
 

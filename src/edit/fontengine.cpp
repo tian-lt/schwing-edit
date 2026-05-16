@@ -10,13 +10,20 @@
 
 namespace swg {
 
-fontengine::fontengine(const std::string& font_path) {
-  auto ftlib = get_ft_library();
-  assert(ftlib && "freetype library must be initialized.");
-  unique_ft_face face;
-  if (FT_New_Face(ftlib, font_path.c_str(), 0, std::out_ptr(ft_face_))) {
-    throw std::runtime_error{"Failed to load font face from path: " + font_path};
+struct fontengine::impl {
+  static void reset(fontengine* self, const std::string& fontpath, double fontsize) {
+    auto ftlib = get_ft_library();
+    assert(ftlib && "freetype library must be initialized.");
+    unique_ft_face face;
+    check_fterror(FT_New_Face(ftlib, fontpath.c_str(), 0, std::out_ptr(face)));
+    check_fterror(FT_Set_Char_Size(face.get(), 0, (FT_F26Dot6)fontsize, 96, 96));
+    check_ptr(hb_ft_face_create_referenced(face.get()), "hb_ft_face_create_referenced failed.");
+    self->ftface_ = std::move(face);
   }
+};
+
+fontengine::fontengine(const std::string& fontpath, double fontsize) {
+  impl::reset(this, fontpath, fontsize);
 }
 
 }  // namespace swg

@@ -7,11 +7,14 @@
 namespace swg {
 
 class fontengine {
+  struct impl;
+
  public:
-  explicit fontengine(const std::string& font_path);
+  explicit fontengine(const std::string& fontpath, double fontsize);
 
  private:
-  unique_ft_face ft_face_;
+  unique_ft_face ftface_;
+  unique_hb_font hbfont_;
 };
 
 }  // namespace swg

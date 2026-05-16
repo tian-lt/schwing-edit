@@ -1,10 +1,13 @@
 // windows
 #include <Windows.h>
+#include <dwmapi.h>
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
 // swg
 #include "resource.hpp"
+
+#pragma comment(lib, "Dwmapi.lib")
 
 namespace {
 static_assert(std::is_same_v<TCHAR, wchar_t>);
@@ -18,7 +21,7 @@ class MainWindow {
         .lpfnWndProc = WndProc,
         .hInstance = GetModuleHandle(nullptr),
         .hCursor = LoadCursor(nullptr, IDC_ARROW),
-        .hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW),
+        .hbrBackground = CreateSolidBrush(RGB(0, 0, 0)),
         .lpszClassName = TEXT("MainWindowClass"),
     };
     ATOM atom = RegisterClassEx(&wcex);
@@ -39,11 +42,28 @@ class MainWindow {
                        hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
     SetFocus(editHwnd_.get());
+    {  // enable mica
+      DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
+      DwmSetWindowAttribute(hwnd.get(), DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
+                            sizeof(DWM_SYSTEMBACKDROP_TYPE));
+      MARGINS margins = {0, 0, (int)(30 * dpiRatio), 0};
+      DwmExtendFrameIntoClientArea(hwnd.get(), &margins);
+    }
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
   }
 
  private:
+  LRESULT OnSize() {
+    RECT rc;
+    if (!GetClientRect(hwnd_, &rc)) {
+      return 0;  // ignore transient error
+    }
+    double dpiRatio = GetDpiForWindow(hwnd_) / 96.0;
+    SetWindowPos(editHwnd_.get(), nullptr, 0, 30 * dpiRatio, rc.right - rc.left,
+                 rc.bottom - rc.top - 30 * dpiRatio, SWP_NOZORDER | SWP_NOACTIVATE);
+    return 0;
+  }
   LRESULT OnSetFocus() {
     SetFocus(editHwnd_.get());
     return 0;
@@ -56,6 +76,8 @@ class MainWindow {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_SIZE:
+        return GetThis(hwnd)->OnSize();
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_CREATE: {
@@ -65,6 +87,15 @@ class MainWindow {
       }
       case WM_DESTROY:
         return GetThis(hwnd)->OnDestroy();
+      case WM_GETMINMAXINFO: {
+        auto info = reinterpret_cast<LPMINMAXINFO>(lparam);
+        double dpiRatio = GetDpiForWindow(hwnd) / 96.0;
+        int minWidth = (int)(480 * dpiRatio);
+        int minHeight = (int)(200 * dpiRatio);
+        info->ptMinTrackSize.x = minWidth;
+        info->ptMinTrackSize.y = minHeight;
+        return 0;
+      }
     }
     return DefWindowProc(hwnd, msg, wparam, lparam);
   }

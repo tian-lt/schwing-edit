@@ -10,10 +10,8 @@
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
-// edit
+// swg
 #include <plaindoc.hpp>
-// app
-#include "sedit.hpp"
 
 namespace {
 
@@ -22,7 +20,7 @@ const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
 
 class Sedit {
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
-      : hwnd_(hwnd), doc_(std::move(fontpath), fontsize, swg::eol::crlf) {
+      : hwnd_(hwnd), doc_(nullptr, std::move(fontpath), fontsize, swg::eol::crlf) {
     double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;

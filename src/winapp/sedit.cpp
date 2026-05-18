@@ -3,6 +3,10 @@
 #include <optional>
 // windows
 #include "win.hpp"
+// glad
+#include <glad/glad.h>
+// wgl
+#include <GL/wgl.h>
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
@@ -14,21 +18,28 @@ namespace {
 const double default_font_size = 12.0;
 const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
 
-class Sedit {
+class Sedit : public swg::host {
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
-      : hwnd_(hwnd), doc_(nullptr, std::move(fontpath), fontsize, swg::eol::crlf) {
+      : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
     double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;
     caretWidth_ = 1 * ratio;
     caretHeight_ = 24 * ratio;
+    InitializeGraphics();
   }
 
  public:
+  ~Sedit() {
+    if (glrc_) {
+      wglMakeCurrent(nullptr, nullptr);
+      wglDeleteContext(glrc_);
+    }
+  }
   static bool Initialize() {
     WNDCLASSEX wcex{
         .cbSize = sizeof(WNDCLASSEX),
-        .style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+        .style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS | CS_OWNDC,
         .lpfnWndProc = WndProc,
         .hInstance = GetModuleHandle(nullptr),
         .hCursor = LoadCursor(nullptr, IDC_IBEAM),
@@ -41,6 +52,17 @@ class Sedit {
   }
 
  private:
+  void on_invalidate(swg::rect rc) override {
+    RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
+    InvalidateRect(hwnd_, &winrc, FALSE);
+  }
+
+  LRESULT OnPaint() {
+    PAINTSTRUCT ps;
+    auto hdc = wil::BeginPaint(hwnd_, &ps);
+    return 0;
+  }
+
   LRESULT OnChar(wchar_t uchar) {
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
@@ -94,10 +116,6 @@ class Sedit {
     DestroyCaret();
     return 0;
   }
-  LRESULT OnDestroy() {
-    PostQuitMessage(0);
-    return 0;
-  }
   std::optional<std::string> DigestChar(wchar_t uchar) {
     constexpr int HI = 0, LO = 1;
     if (IS_HIGH_SURROGATE(uchar)) {
@@ -120,10 +138,78 @@ class Sedit {
       }
     }
   }
+  void InitializeGraphics() {
+    auto hdc = wil::GetDC(hwnd_);
+    THROW_LAST_ERROR_IF(!hdc);
+    PIXELFORMATDESCRIPTOR pfd{.nSize = sizeof(PIXELFORMATDESCRIPTOR),
+                              .nVersion = 1,
+                              .dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+                              .iPixelType = PFD_TYPE_RGBA,
+                              .cColorBits = 32,
+                              .cDepthBits = 24,
+                              .cStencilBits = 8,
+                              .iLayerType = PFD_MAIN_PLANE};
+    int format = ChoosePixelFormat(hdc.get(), &pfd);
+    if (format == 0 || !SetPixelFormat(hdc.get(), format, &pfd)) {
+      throw std::runtime_error{"opengl pixel format error"};
+    }
+    HGLRC tmp = wglCreateContext(hdc.get());
+    if (!tmp) {
+      throw std::runtime_error{"opengl context creation error"};
+    }
+    if (!wglMakeCurrent(hdc.get(), tmp)) {
+      wglDeleteContext(tmp);
+      throw std::runtime_error{"opengl context activation error"};
+    }
+
+    if (!gladLoadGL()) {
+      wglMakeCurrent(nullptr, nullptr);
+      wglDeleteContext(tmp);
+      throw std::runtime_error{"opengl function loading error"};
+    }
+    int attrs[] = {WGL_CONTEXT_MAJOR_VERSION_ARB,
+                   3,
+                   WGL_CONTEXT_MINOR_VERSION_ARB,
+                   3,
+                   WGL_CONTEXT_PROFILE_MASK_ARB,
+                   WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                   0};
+    auto wglCreateContextAttribsARB =
+        (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
+    if (!wglCreateContextAttribsARB) {
+      wglMakeCurrent(nullptr, nullptr);
+      wglDeleteContext(tmp);
+      throw std::runtime_error{"wglCreateContextAttribsARB not supported"};
+    }
+    HGLRC ctx = wglCreateContextAttribsARB(hdc.get(), nullptr, attrs);
+    if (!ctx) {
+      wglMakeCurrent(nullptr, nullptr);
+      wglDeleteContext(tmp);
+      throw std::runtime_error{"modern opengl context creation error"};
+    }
+    wglMakeCurrent(nullptr, nullptr);
+    wglDeleteContext(tmp);
+    if (!wglMakeCurrent(hdc.get(), ctx)) {
+      wglDeleteContext(ctx);
+      throw std::runtime_error{"modern opengl context activation error"};
+    }
+
+    if (!gladLoadGL()) {
+      wglMakeCurrent(nullptr, nullptr);
+      wglDeleteContext(ctx);
+      throw std::runtime_error{"modern opengl function loading error"};
+    }
+    glrc_ = ctx;
+    hdc_ = std::move(hdc);
+  }
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_ERASEBKGND:
+        return 0;
+      case WM_PAINT:
+        return GetThis(hwnd)->OnPaint();
       case WM_LBUTTONDOWN:
         SetFocus(hwnd);
         return 0;
@@ -140,9 +226,8 @@ class Sedit {
         return 0;
       case WM_DESTROY: {
         auto self = GetThis(hwnd);
-        auto res = self->OnDestroy();
         delete self;
-        return res;
+        return 0;
       }
     }
     return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -153,6 +238,8 @@ class Sedit {
 
  private:
   HWND hwnd_ = nullptr;
+  wil::unique_hdc_window hdc_;
+  HGLRC glrc_ = nullptr;
   size_t insPos_ = 0;
   swg::plaindoc doc_;
   wchar_t surrogate_[2] = {};

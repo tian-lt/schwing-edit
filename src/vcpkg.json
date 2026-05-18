@@ -4,6 +4,7 @@
   "dependencies": [
     "freetype",
     "harfbuzz",
+    "glad",
     "gtest",
     {
       "name": "wil",

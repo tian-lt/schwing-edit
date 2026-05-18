@@ -15,19 +15,21 @@ struct rect {
   int x, y, w, h;
 };
 
-class display {
+class host {
   friend class plaindoc;
 
  public:
-  virtual ~display();
+  virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
-  void render();
+  void render(rect rc);
 };
 
 class plaindoc {
+  friend class host;
+
  public:
-  explicit plaindoc(display* disp, std::string fontpath, double fontsize, eol eol)
-      : ltable_(eol), disp_(disp), fontpath_(fontpath), fontsize_(fontsize) {}
+  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
+      : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize) {}
   void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
@@ -37,7 +39,7 @@ class plaindoc {
  private:
   piecetable ptable_;
   linetable ltable_;
-  display* disp_;
+  host* host_;
   std::string fontpath_;
   std::vector<fontengine> fonts_;
   double fontsize_;

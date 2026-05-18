@@ -16,4 +16,6 @@ void plaindoc::insert(size_t pos, std::string_view data) {
 }
 void plaindoc::erase(size_t pos, size_t length) { ptable_.erase(pos, length); }
 
+void host::render(rect /*rc*/) {}
+
 }  // namespace swg

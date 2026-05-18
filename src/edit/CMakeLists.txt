@@ -10,9 +10,13 @@ target_include_directories(edit PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(edit PUBLIC cxx_std_23)
 find_package(harfbuzz CONFIG REQUIRED)
 find_package(Freetype REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(glad CONFIG REQUIRED)
 target_link_libraries(edit PUBLIC
   Freetype::Freetype
   harfbuzz::harfbuzz
+  OpenGL::GL
+  glad::glad
 )
 
 if (MSVC)

@@ -58,13 +58,13 @@ class Sedit : public swg::host {
   }
 
   LRESULT OnPaint() {
+    glClearColor(1.f, 1.f, 1.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    SwapBuffers(hdc_.get());
     PAINTSTRUCT ps;
     {
       auto hdc = wil::BeginPaint(hwnd_, &ps);
     }
-    glClearColor(1.f, 1.f, 1.f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    SwapBuffers(hdc_.get());
     return 0;
   }
 

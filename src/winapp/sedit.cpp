@@ -59,7 +59,12 @@ class Sedit : public swg::host {
 
   LRESULT OnPaint() {
     PAINTSTRUCT ps;
-    auto hdc = wil::BeginPaint(hwnd_, &ps);
+    {
+      auto hdc = wil::BeginPaint(hwnd_, &ps);
+    }
+    glClearColor(1.f, 1.f, 1.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    SwapBuffers(hdc_.get());
     return 0;
   }
 
@@ -103,6 +108,10 @@ class Sedit : public swg::host {
 #endif
       SetCaretPos(caretPosX_, caretPosY_);
     }
+    return 0;
+  }
+  LRESULT OnSize(int width, int height) {
+    glViewport(0, 0, width, height);
     return 0;
   }
   LRESULT OnSetFocus() {
@@ -206,6 +215,8 @@ class Sedit : public swg::host {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_SIZE:
+        return GetThis(hwnd)->OnSize(LOWORD(lparam), HIWORD(lparam));
       case WM_ERASEBKGND:
         return 0;
       case WM_PAINT:

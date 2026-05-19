@@ -19,6 +19,7 @@ const double default_font_size = 12.0;
 const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
 
 class Sedit : public swg::host {
+ public:
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
       : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
     doc = &doc_;
@@ -30,7 +31,6 @@ class Sedit : public swg::host {
     InitializeGraphics();
   }
 
- public:
   ~Sedit() {
     if (glrc_) {
       wglMakeCurrent(nullptr, nullptr);
@@ -98,7 +98,8 @@ class Sedit : public swg::host {
     return 0;
   }
   LRESULT OnSize(int width, int height) {
-    glViewport(0, 0, width, height);
+    viewport.w = width;
+    viewport.h = height;
     return 0;
   }
   LRESULT OnSetFocus() {
@@ -217,14 +218,16 @@ class Sedit : public swg::host {
         return GetThis(hwnd)->OnSetFocus();
       case WM_KILLFOCUS:
         return GetThis(hwnd)->OnKillFocus();
-      case WM_CREATE:
-        SetWindowLongPtr(
-            hwnd, GWLP_USERDATA,
-            reinterpret_cast<LONG_PTR>(new Sedit(hwnd, default_font_path, default_font_size)));
+      case WM_CREATE: {
+        auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
+        auto edit = std::make_unique<Sedit>(hwnd, default_font_path, default_font_size);
+        edit->viewport = swg::rect{.x = 0, .y = 0, .w = cs->cx, .h = cs->cy};
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(edit.release()));
         return 0;
+      }
       case WM_DESTROY: {
         auto self = GetThis(hwnd);
-        delete self;
+        std::default_delete<Sedit>{}(self);
         return 0;
       }
     }

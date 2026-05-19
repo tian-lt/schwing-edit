@@ -1,6 +1,8 @@
 // std
 #include <algorithm>
 #include <cassert>
+// gl
+#include <glad/glad.h>
 // swg
 #include "plaindoc.hpp"
 
@@ -20,12 +22,20 @@ void plaindoc::insert(size_t pos, std::string_view data) {
 }
 void plaindoc::erase(size_t pos, size_t length) { ptable_.erase(pos, length); }
 
+struct host::impl {
+  static void post_edit(host* self, size_t pos_before, size_t pos_after) {
+    auto l0 = self->doc->ltable_.line_at_pos(pos_before);
+    auto l1 = self->doc->ltable_.line_at_pos(pos_after);
+    l0 = l0 > l1 ? l1 : l0;
+  }
+};
 void host::render(rect /*rc*/) {}
-
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");
+  size_t before = inspos_;
   doc->insert(inspos_, u8char);
   inspos_ += u8char.length();
+  impl::post_edit(this, before, inspos_);
 }
 void host::erase_char() {
   if (doc->length() == 0 || inspos_ == 0) {
@@ -41,9 +51,12 @@ void host::erase_char() {
     --e;
   }
   doc->erase(e, inspos_ - e);
+  size_t before = inspos_;
   inspos_ = e;
+  impl::post_edit(this, before, inspos_);
 }
 void host::linefeed() {
+  size_t before = inspos_;
   switch (doc->eol_) {
     case eol::cr:
       doc->insert(inspos_, "\r");
@@ -60,6 +73,7 @@ void host::linefeed() {
     default:
       std::unreachable();
   }
+  impl::post_edit(this, before, inspos_);
 }
 
 }  // namespace swg

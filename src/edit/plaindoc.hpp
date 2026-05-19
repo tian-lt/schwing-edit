@@ -21,6 +21,7 @@ struct docpos {
 
 class host {
   friend class plaindoc;
+  struct impl;
 
  public:
   virtual ~host() = default;
@@ -35,6 +36,7 @@ class host {
 
  protected:
   plaindoc* doc = nullptr;
+  rect viewport = {};
 
  private:
   size_t inspos_ = 0;

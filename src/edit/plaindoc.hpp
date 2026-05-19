@@ -15,6 +15,10 @@ struct rect {
   int x, y, w, h;
 };
 
+struct docpos {
+  int line, column;
+};
+
 class host {
   friend class plaindoc;
 
@@ -22,6 +26,18 @@ class host {
   virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
   void render(rect rc);
+  void caret(docpos pos);
+  docpos caret() const;
+  void insert_char(std::string_view u8char);
+  void erase_char();
+  void delete_char();
+  void linefeed();
+
+ protected:
+  plaindoc* doc = nullptr;
+
+ private:
+  size_t inspos_ = 0;
 };
 
 class plaindoc {
@@ -29,7 +45,7 @@ class plaindoc {
 
  public:
   explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
-      : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize) {}
+      : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize), eol_(eol) {}
   void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
@@ -43,6 +59,7 @@ class plaindoc {
   std::string fontpath_;
   std::vector<fontengine> fonts_;
   double fontsize_;
+  eol eol_;
   bool mixeol_ = false;
 };
 

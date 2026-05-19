@@ -21,6 +21,7 @@ const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
 class Sedit : public swg::host {
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
       : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
+    doc = &doc_;
     double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;
@@ -58,44 +59,30 @@ class Sedit : public swg::host {
   }
 
   LRESULT OnPaint() {
+    PAINTSTRUCT ps;
+    auto hdc = wil::BeginPaint(hwnd_, &ps);
     glClearColor(1.f, 1.f, 1.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
+    render({.x = ps.rcPaint.left,
+            .y = ps.rcPaint.top,
+            .w = ps.rcPaint.right - ps.rcPaint.left,
+            .h = ps.rcPaint.bottom - ps.rcPaint.top});
     SwapBuffers(hdc_.get());
-    PAINTSTRUCT ps;
-    {
-      auto hdc = wil::BeginPaint(hwnd_, &ps);
-    }
     return 0;
   }
 
   LRESULT OnChar(wchar_t uchar) {
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
-      if (*res == "\r") {
-        doc_.insert(insPos_, "\r\n");
-        insPos_ += 2;
+      if (*res == "\r" || *res == "\n") {
+        linefeed();
         caretPosX_ = 4 * ratio;
         caretPosY_ += 24 * ratio;
       } else if (*res == "\b") {
-        if (insPos_ == 0 || doc_.length() == 0) {
-          return 0;
-        } else {
-          size_t l = std::min(6uz, insPos_);
-          auto s = doc_.get(insPos_ - l, l);
-          size_t e = insPos_ - 1;
-          for (auto it = s.rbegin(); it != s.rend(); ++it) {
-            if ((*it & 0xC0) != 0x80) {
-              break;
-            }
-            --e;
-          }
-          doc_.erase(e, insPos_ - e);
-          insPos_ = e;
-          caretPosX_ -= 4 * ratio;
-        }
+        erase_char();
+        caretPosX_ -= 4 * ratio;
       } else {
-        doc_.insert(insPos_, *res);
-        insPos_ += res->size();
+        insert_char(*res);
         caretPosX_ += 4 * ratio;
       }
 #ifdef _DEBUG
@@ -251,7 +238,6 @@ class Sedit : public swg::host {
   HWND hwnd_ = nullptr;
   wil::unique_hdc_window hdc_;
   HGLRC glrc_ = nullptr;
-  size_t insPos_ = 0;
   swg::plaindoc doc_;
   wchar_t surrogate_[2] = {};
   int caretPosX_ = 0;

@@ -1,6 +1,11 @@
 // std
+#include <cstdint>
 #include <format>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <type_traits>
 // windows
 #include "win.hpp"
 // glad
@@ -17,6 +22,123 @@ namespace {
 
 const double default_font_size = 12.0;
 const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
+const wchar_t wgl_dummy_window_class[] = L"SEditWglDummyWindowClass";
+
+PIXELFORMATDESCRIPTOR OpenGLPixelFormatDescriptor() {
+  return PIXELFORMATDESCRIPTOR{
+      .nSize = sizeof(PIXELFORMATDESCRIPTOR),
+      .nVersion = 1,
+      .dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+      .iPixelType = PFD_TYPE_RGBA,
+      .cColorBits = 32,
+      .cDepthBits = 24,
+      .cStencilBits = 8,
+      .iLayerType = PFD_MAIN_PLANE};
+}
+
+void SetLegacyOpenGLPixelFormat(HDC hdc) {
+  auto pfd = OpenGLPixelFormatDescriptor();
+  int format = ChoosePixelFormat(hdc, &pfd);
+  if (format == 0 || !SetPixelFormat(hdc, format, &pfd)) {
+    throw std::runtime_error{"opengl pixel format error"};
+  }
+}
+
+template <typename T>
+T LoadWglProc(const char* name) {
+  auto proc = wglGetProcAddress(name);
+  auto value = reinterpret_cast<std::intptr_t>(proc);
+  if (value == 0 || value == 1 || value == 2 || value == 3 || value == -1) {
+    return nullptr;
+  }
+  return reinterpret_cast<T>(proc);
+}
+
+bool HasWglExtension(PFNWGLGETEXTENSIONSSTRINGARBPROC wglGetExtensionsStringARB, HDC hdc,
+                     std::string_view extension) {
+  if (!wglGetExtensionsStringARB) {
+    return false;
+  }
+
+  const char* extensions = wglGetExtensionsStringARB(hdc);
+  if (!extensions) {
+    return false;
+  }
+
+  std::string_view extension_list{extensions};
+  size_t pos = 0;
+  while ((pos = extension_list.find(extension, pos)) != std::string_view::npos) {
+    const bool starts_token = pos == 0 || extension_list[pos - 1] == ' ';
+    const size_t end = pos + extension.length();
+    const bool ends_token = end == extension_list.length() || extension_list[end] == ' ';
+    if (starts_token && ends_token) {
+      return true;
+    }
+    pos = end;
+  }
+  return false;
+}
+
+void RegisterWglDummyWindowClass() {
+  WNDCLASSEX wcex{.cbSize = sizeof(WNDCLASSEX),
+                  .style = CS_OWNDC,
+                  .lpfnWndProc = DefWindowProc,
+                  .hInstance = GetModuleHandle(nullptr),
+                  .lpszClassName = wgl_dummy_window_class};
+  ATOM atom = RegisterClassEx(&wcex);
+  if (atom == 0) {
+    DWORD error = GetLastError();
+    THROW_WIN32_IF(error, error != ERROR_CLASS_ALREADY_EXISTS);
+  }
+}
+
+struct wgl_bootstrap_context;
+
+struct hglrc_deleter {
+  void operator()(HGLRC glrc) { wglDeleteContext(glrc); }
+};
+
+struct wgl_bootstrap_context_deleter {
+  void operator()(wgl_bootstrap_context* context);
+};
+
+using unique_hglrc = std::unique_ptr<std::remove_pointer_t<HGLRC>, hglrc_deleter>;
+
+struct wgl_bootstrap_context {
+  wil::unique_hwnd hwnd;
+  wil::unique_hdc_window hdc;
+  unique_hglrc glrc;
+};
+
+using unique_wgl_bootstrap_context =
+    std::unique_ptr<wgl_bootstrap_context, wgl_bootstrap_context_deleter>;
+
+void wgl_bootstrap_context_deleter::operator()(wgl_bootstrap_context* context) {
+  wglMakeCurrent(nullptr, nullptr);
+  delete context;
+}
+
+unique_wgl_bootstrap_context CreateWglBootstrapContext() {
+  RegisterWglDummyWindowClass();
+
+  unique_wgl_bootstrap_context context{new wgl_bootstrap_context};
+  context->hwnd.reset(CreateWindowEx(0, wgl_dummy_window_class, L"", WS_OVERLAPPED, 0, 0, 1, 1,
+                                     nullptr, nullptr, GetModuleHandle(nullptr), nullptr));
+  THROW_LAST_ERROR_IF(!context->hwnd);
+
+  context->hdc = wil::GetDC(context->hwnd.get());
+  THROW_LAST_ERROR_IF(!context->hdc);
+
+  SetLegacyOpenGLPixelFormat(context->hdc.get());
+  context->glrc.reset(wglCreateContext(context->hdc.get()));
+  if (!context->glrc) {
+    throw std::runtime_error{"opengl bootstrap context creation error"};
+  }
+  if (!wglMakeCurrent(context->hdc.get(), context->glrc.get())) {
+    throw std::runtime_error{"opengl bootstrap context activation error"};
+  }
+  return context;
+}
 
 class Sedit : public swg::host {
  public:
@@ -34,7 +156,6 @@ class Sedit : public swg::host {
   ~Sedit() {
     if (glrc_) {
       wglMakeCurrent(nullptr, nullptr);
-      wglDeleteContext(glrc_);
     }
   }
   static bool Initialize() {
@@ -138,65 +259,84 @@ class Sedit : public swg::host {
   void InitializeGraphics() {
     auto hdc = wil::GetDC(hwnd_);
     THROW_LAST_ERROR_IF(!hdc);
-    PIXELFORMATDESCRIPTOR pfd{.nSize = sizeof(PIXELFORMATDESCRIPTOR),
-                              .nVersion = 1,
-                              .dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-                              .iPixelType = PFD_TYPE_RGBA,
-                              .cColorBits = 32,
-                              .cDepthBits = 24,
-                              .cStencilBits = 8,
-                              .iLayerType = PFD_MAIN_PLANE};
-    int format = ChoosePixelFormat(hdc.get(), &pfd);
-    if (format == 0 || !SetPixelFormat(hdc.get(), format, &pfd)) {
-      throw std::runtime_error{"opengl pixel format error"};
+
+    unique_hglrc ctx;
+    {
+      auto bootstrap = CreateWglBootstrapContext();
+      auto wglGetExtensionsStringARB =
+          LoadWglProc<PFNWGLGETEXTENSIONSSTRINGARBPROC>("wglGetExtensionsStringARB");
+      auto wglChoosePixelFormatARB =
+          LoadWglProc<PFNWGLCHOOSEPIXELFORMATARBPROC>("wglChoosePixelFormatARB");
+      auto wglCreateContextAttribsARB =
+          LoadWglProc<PFNWGLCREATECONTEXTATTRIBSARBPROC>("wglCreateContextAttribsARB");
+
+      if (HasWglExtension(wglGetExtensionsStringARB, bootstrap->hdc.get(),
+                          "WGL_ARB_pixel_format") &&
+          wglChoosePixelFormatARB) {
+        int pixel_format_attrs[] = {WGL_DRAW_TO_WINDOW_ARB,
+                                    TRUE,
+                                    WGL_SUPPORT_OPENGL_ARB,
+                                    TRUE,
+                                    WGL_DOUBLE_BUFFER_ARB,
+                                    TRUE,
+                                    WGL_ACCELERATION_ARB,
+                                    WGL_FULL_ACCELERATION_ARB,
+                                    WGL_PIXEL_TYPE_ARB,
+                                    WGL_TYPE_RGBA_ARB,
+                                    WGL_COLOR_BITS_ARB,
+                                    32,
+                                    WGL_DEPTH_BITS_ARB,
+                                    24,
+                                    WGL_STENCIL_BITS_ARB,
+                                    8,
+                                    0};
+        int format = 0;
+        UINT format_count = 0;
+        if (wglChoosePixelFormatARB(hdc.get(), pixel_format_attrs, nullptr, 1, &format,
+                                    &format_count) &&
+            format_count > 0) {
+          PIXELFORMATDESCRIPTOR pfd{};
+          if (DescribePixelFormat(hdc.get(), format, sizeof(pfd), &pfd) == 0 ||
+              !SetPixelFormat(hdc.get(), format, &pfd)) {
+            throw std::runtime_error{"opengl pixel format error"};
+          }
+        } else {
+          SetLegacyOpenGLPixelFormat(hdc.get());
+        }
+      } else {
+        SetLegacyOpenGLPixelFormat(hdc.get());
+      }
+
+      if (HasWglExtension(wglGetExtensionsStringARB, bootstrap->hdc.get(),
+                          "WGL_ARB_create_context") &&
+          wglCreateContextAttribsARB) {
+        int attrs[] = {WGL_CONTEXT_MAJOR_VERSION_ARB,
+                       3,
+                       WGL_CONTEXT_MINOR_VERSION_ARB,
+                       3,
+                       WGL_CONTEXT_PROFILE_MASK_ARB,
+                       WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                       0};
+        ctx.reset(wglCreateContextAttribsARB(hdc.get(), nullptr, attrs));
+      }
+    } // boostrap wgl
+
+    if (!ctx) {
+      ctx.reset(wglCreateContext(hdc.get()));
+      if (!ctx) {
+        throw std::runtime_error{"opengl context creation error"};
+      }
     }
-    HGLRC tmp = wglCreateContext(hdc.get());
-    if (!tmp) {
-      throw std::runtime_error{"opengl context creation error"};
-    }
-    if (!wglMakeCurrent(hdc.get(), tmp)) {
-      wglDeleteContext(tmp);
+
+    if (!wglMakeCurrent(hdc.get(), ctx.get())) {
       throw std::runtime_error{"opengl context activation error"};
     }
 
     if (!gladLoadGL()) {
       wglMakeCurrent(nullptr, nullptr);
-      wglDeleteContext(tmp);
       throw std::runtime_error{"opengl function loading error"};
     }
-    int attrs[] = {WGL_CONTEXT_MAJOR_VERSION_ARB,
-                   3,
-                   WGL_CONTEXT_MINOR_VERSION_ARB,
-                   3,
-                   WGL_CONTEXT_PROFILE_MASK_ARB,
-                   WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-                   0};
-    auto wglCreateContextAttribsARB =
-        (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
-    if (!wglCreateContextAttribsARB) {
-      wglMakeCurrent(nullptr, nullptr);
-      wglDeleteContext(tmp);
-      throw std::runtime_error{"wglCreateContextAttribsARB not supported"};
-    }
-    HGLRC ctx = wglCreateContextAttribsARB(hdc.get(), nullptr, attrs);
-    if (!ctx) {
-      wglMakeCurrent(nullptr, nullptr);
-      wglDeleteContext(tmp);
-      throw std::runtime_error{"modern opengl context creation error"};
-    }
-    wglMakeCurrent(nullptr, nullptr);
-    wglDeleteContext(tmp);
-    if (!wglMakeCurrent(hdc.get(), ctx)) {
-      wglDeleteContext(ctx);
-      throw std::runtime_error{"modern opengl context activation error"};
-    }
-
-    if (!gladLoadGL()) {
-      wglMakeCurrent(nullptr, nullptr);
-      wglDeleteContext(ctx);
-      throw std::runtime_error{"modern opengl function loading error"};
-    }
-    glrc_ = ctx;
+    glrc_ = std::move(ctx);
     hdc_ = std::move(hdc);
   }
 
@@ -240,7 +380,7 @@ class Sedit : public swg::host {
  private:
   HWND hwnd_ = nullptr;
   wil::unique_hdc_window hdc_;
-  HGLRC glrc_ = nullptr;
+  unique_hglrc glrc_;
   swg::plaindoc doc_;
   wchar_t surrogate_[2] = {};
   int caretPosX_ = 0;

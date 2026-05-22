@@ -22,6 +22,7 @@
 #include <wil/result_macros.h>
 // app
 #include "res.h"
+#include "theme.hpp"
 // swg
 #include <plaindoc.hpp>
 
@@ -367,8 +368,12 @@ class Sedit : public swg::host {
     }
     EnsureBackBuffer(viewport.w, viewport.h);
 
-    // Clear back-buffer to white (Notepad-style background).
-    std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, 0x00FFFFFFu);
+    // Pull the theme palette once per paint. Cheap registry read; nothing in
+    // the hot typing path depends on it.
+    const auto palette = swg::winapp::theme::current_palette();
+
+    // Clear back-buffer to the editor background (theme-aware).
+    std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, palette.editor_bg);
 
     // Compute the layout — pure CPU work in src/edit/.
     auto layout =
@@ -398,16 +403,13 @@ class Sedit : public swg::host {
     // Draw selection highlight rectangles first, behind text.
     if (has_selection()) {
       const auto [sb, se] = selection_range();
-      // Use a light-blue highlight reminiscent of Windows' default
-      // selection color so anti-aliased glyphs remain readable on top.
-      const uint32_t kHighlight = 0x00CCE4F7u;
-      RenderSelection(bb_pixels_, bb_w_, bb_h_, layout, sb, se, kHighlight);
+      RenderSelection(bb_pixels_, bb_w_, bb_h_, layout, sb, se, palette.selection_bg);
     }
 
     // Composite every shaped glyph using the document's CPU-side atlas.
     const auto& atlas = doc_.atlas();
     CompositeAllGlyphs(bb_pixels_, bb_w_, bb_h_, atlas.bitmap().data(), atlas.width(),
-                       atlas.height(), layout, /*fg=*/0x000000u);
+                       atlas.height(), layout, /*fg=*/palette.editor_fg);
 
     BitBlt(hdc, 0, 0, bb_w_, bb_h_, mem_dc_, 0, 0, SRCCOPY);
     EndPaint(hwnd_, &ps);
@@ -1497,6 +1499,15 @@ class Sedit : public swg::host {
         case WM_KILLFOCUS:
           if (self) return self->OnKillFocus();
           break;
+        case WM_SETTINGCHANGE: {
+          // Forwarded by the main window when the system app-theme changes.
+          // Invalidate so the next paint picks up the new palette.
+          const wchar_t* what = reinterpret_cast<const wchar_t*>(lparam);
+          if (what && lstrcmpiW(what, L"ImmersiveColorSet") == 0) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+          }
+          return 0;
+        }
         case WM_CREATE: {
           auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
           auto edit = std::make_unique<Sedit>(hwnd, default_font_path, default_font_size);

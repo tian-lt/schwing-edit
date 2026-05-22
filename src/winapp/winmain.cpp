@@ -12,6 +12,7 @@
 #include "resource.hpp"
 // app
 #include "res.h"
+#include "theme.hpp"
 
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "Dwmapi.lib")
@@ -31,7 +32,11 @@ class MainWindow {
         .hIcon = (HICON)LoadImage(hinst, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 32, 32,
                                   LR_DEFAULTCOLOR),
         .hCursor = LoadCursor(nullptr, IDC_ARROW),
-        .hbrBackground = CreateSolidBrush(RGB(0, 0, 0)),
+        // Leave hbrBackground null so DWM's Mica/Acrylic backdrop shows
+        // through any pixels not covered by child controls (status bar,
+        // editor). A solid brush here would paint over Mica and cause a
+        // visible flash during resize.
+        .hbrBackground = nullptr,
         .lpszClassName = TEXT("MainWindowClass"),
         .hIconSm = (HICON)LoadImage(hinst, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16, 16,
                                     LR_DEFAULTCOLOR),
@@ -51,6 +56,7 @@ class MainWindow {
         CreateWindowEx(0, STATUSCLASSNAME, nullptr, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0,
                        0, 0, hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!statusHwnd_.is_valid());
+    swg::winapp::theme::apply_status_bar_theme(statusHwnd_.get());
     LayoutStatusBar();
     RECT rc;
     THROW_IF_WIN32_BOOL_FALSE(GetClientRect(hwnd.get(), &rc));
@@ -64,11 +70,9 @@ class MainWindow {
     SetFocus(editHwnd_.get());
     SendMessage(editHwnd_.get(), WM_SEDIT_SET_STATUS,
                 reinterpret_cast<WPARAM>(statusHwnd_.get()), 0);
-    {  // enable mica
-      DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
-      DwmSetWindowAttribute(hwnd.get(), DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
-                            sizeof(DWM_SYSTEMBACKDROP_TYPE));
-    }
+    // Modern Win11 visuals: Mica backdrop, rounded corners, immersive
+    // (dark/light) title bar following the system theme.
+    swg::winapp::theme::apply_window_theme(hwnd.get());
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
   }
@@ -151,6 +155,27 @@ class MainWindow {
         return GetThis(hwnd)->OnDestroy();
       case WM_CLOSE:
         return GetThis(hwnd)->OnClose();
+      case WM_SETTINGCHANGE: {
+        // Re-apply the immersive dark-mode title bar when the user toggles
+        // the system app-theme. Windows broadcasts WM_SETTINGCHANGE with
+        // lParam == "ImmersiveColorSet" on theme changes.
+        const wchar_t* what = reinterpret_cast<const wchar_t*>(lparam);
+        if (what && lstrcmpiW(what, L"ImmersiveColorSet") == 0) {
+          swg::winapp::theme::refresh_window_theme(hwnd);
+          // Forward so the editor (and any future children) can repaint with
+          // the new palette.
+          auto* self = GetThis(hwnd);
+          if (self) {
+            if (self->editHwnd_) {
+              SendMessageW(self->editHwnd_.get(), WM_SETTINGCHANGE, wparam, lparam);
+            }
+            if (self->statusHwnd_) {
+              InvalidateRect(self->statusHwnd_.get(), nullptr, TRUE);
+            }
+          }
+        }
+        return 0;
+      }
       case WM_GETMINMAXINFO: {
         auto info = reinterpret_cast<LPMINMAXINFO>(lparam);
         double dpiRatio = GetDpiForWindow(hwnd) / 96.0;
@@ -185,6 +210,10 @@ bool IsFindDialogMessage(MSG* msg);
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
   swg::initialize();
+  // Opt the process into uxtheme's dark-mode story BEFORE any window is
+  // created so the menu bar, scroll bars and other common controls pick up
+  // the dark palette from the start.
+  swg::winapp::theme::initialize_app_dark_mode();
   // Initialize common controls so STATUSCLASSNAME is registered.
   {
     INITCOMMONCONTROLSEX icc{.dwSize = sizeof(icc), .dwICC = ICC_BAR_CLASSES};

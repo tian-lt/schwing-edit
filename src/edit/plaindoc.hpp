@@ -36,7 +36,7 @@ class host {
 
   // Render the visible window. Returns the layout used so platform code can
   // position the system caret, hit-test, etc.
-  layout_result render(rect rc, int scroll_y = 0);
+  layout_result render(rect rc, int scroll_y = 0, int scroll_x = 0);
 
   // Caret operations operate on byte offsets in the document. `inspos()`
   // queries the current insertion point. Setting the caret implicitly clears
@@ -213,7 +213,7 @@ class plaindoc {
   // shaping and layout but does not draw to any surface; platform code reads
   // the layout_result and the atlas() to paint pixels using its native
   // graphics API.
-  layout_result render(int viewport_w, int viewport_h, int scroll_y);
+  layout_result render(int viewport_w, int viewport_h, int scroll_y, int scroll_x = 0);
 
   const linetable& lines() const { return ltable_; }
   const piecetable& pieces() const { return ptable_; }

@@ -44,12 +44,13 @@ void plaindoc::ensure_render_resources() {
   }
 }
 
-layout_result plaindoc::render(int viewport_w, int viewport_h, int scroll_y) {
+layout_result plaindoc::render(int viewport_w, int viewport_h, int scroll_y, int scroll_x) {
   ensure_render_resources();
   layout_params params{
       .viewport_w = viewport_w,
       .viewport_h = viewport_h,
       .scroll_y = scroll_y,
+      .scroll_x = scroll_x,
       .padding_x = 4,
       .padding_y = 2,
   };
@@ -64,8 +65,8 @@ struct host::impl {
   }
 };
 
-layout_result host::render(rect rc, int scroll_y) {
-  return doc->render(rc.w, rc.h, scroll_y);
+layout_result host::render(rect rc, int scroll_y, int scroll_x) {
+  return doc->render(rc.w, rc.h, scroll_y, scroll_x);
 }
 
 void host::caret(size_t byte_pos) {

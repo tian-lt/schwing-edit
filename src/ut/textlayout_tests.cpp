@@ -129,4 +129,74 @@ TEST(textlayout_tests, viewport_clipping_drops_horizontally_offscreen_glyphs) {
   EXPECT_LT(r.glyphs.size(), 26u);
 }
 
+TEST(textlayout_tests, content_width_grows_with_longer_lines) {
+  skip_if_no_font();
+  layout_fixture fx_short{"a"};
+  layout_params params{.viewport_w = 800, .viewport_h = 600, .padding_x = 4};
+  auto r_short = layout_viewport(fx_short.ptable, fx_short.ltable, fx_short.font,
+                                 fx_short.shaper, fx_short.atlas, params);
+
+  layout_fixture fx_long{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
+  auto r_long = layout_viewport(fx_long.ptable, fx_long.ltable, fx_long.font,
+                                fx_long.shaper, fx_long.atlas, params);
+
+  EXPECT_GT(r_long.content_width, r_short.content_width);
+  // Even an empty layout should report at least the left padding so the H
+  // scrollbar is never sized to 0.
+  EXPECT_GE(r_short.content_width, params.padding_x);
+}
+
+TEST(textlayout_tests, content_width_is_max_over_visible_lines) {
+  skip_if_no_font();
+  // Three lines: short, long, short. content_width should reflect the longest.
+  layout_fixture fx{"a\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nb"};
+  layout_params params{.viewport_w = 800, .viewport_h = 600, .padding_x = 4};
+  auto r = layout_viewport(fx.ptable, fx.ltable, fx.font, fx.shaper, fx.atlas, params);
+  // The middle long line should dominate; comfortably bigger than padding.
+  EXPECT_GT(r.content_width, 30 * 4);
+}
+
+TEST(textlayout_tests, positive_scroll_x_shifts_glyphs_left) {
+  skip_if_no_font();
+  layout_fixture fx{"abcdefghijklmnop"};
+  layout_params p0{.viewport_w = 800, .viewport_h = 600, .padding_x = 4};
+  auto r0 = layout_viewport(fx.ptable, fx.ltable, fx.font, fx.shaper, fx.atlas, p0);
+  layout_params p1 = p0;
+  p1.scroll_x = 50;
+  auto r1 = layout_viewport(fx.ptable, fx.ltable, fx.font, fx.shaper, fx.atlas, p1);
+  // The end-of-line caret pen position should be exactly 50 px to the left
+  // in r1 vs r0. Carets carry the unmodified pen_x so they're a stable
+  // reference even when some left glyphs are clipped out.
+  const caret_anchor* end0 = nullptr;
+  const caret_anchor* end1 = nullptr;
+  for (const auto& c : r0.carets) if (c.byte_pos == 16) { end0 = &c; break; }
+  for (const auto& c : r1.carets) if (c.byte_pos == 16) { end1 = &c; break; }
+  ASSERT_NE(end0, nullptr);
+  ASSERT_NE(end1, nullptr);
+  EXPECT_NEAR(end0->x - end1->x, 50.0f, 0.5f);
+  // r1 should also have fewer visible glyphs than r0 because the left side
+  // of the line gets clipped out of the viewport.
+  EXPECT_LT(r1.glyphs.size(), r0.glyphs.size());
+}
+
+TEST(textlayout_tests, scroll_x_shifts_carets_into_screen_space) {
+  skip_if_no_font();
+  layout_fixture fx{"abc"};
+  layout_params p0{.viewport_w = 800, .viewport_h = 600, .padding_x = 4};
+  auto r0 = layout_viewport(fx.ptable, fx.ltable, fx.font, fx.shaper, fx.atlas, p0);
+  layout_params p1 = p0;
+  p1.scroll_x = 20;
+  auto r1 = layout_viewport(fx.ptable, fx.ltable, fx.font, fx.shaper, fx.atlas, p1);
+  ASSERT_GE(r0.carets.size(), 1u);
+  ASSERT_GE(r1.carets.size(), 1u);
+  // The byte_pos=0 caret in r0 sits at padding_x; in r1 it sits 20 px earlier.
+  const caret_anchor* a0 = nullptr;
+  const caret_anchor* a1 = nullptr;
+  for (const auto& c : r0.carets) if (c.byte_pos == 0) { a0 = &c; break; }
+  for (const auto& c : r1.carets) if (c.byte_pos == 0) { a1 = &c; break; }
+  ASSERT_NE(a0, nullptr);
+  ASSERT_NE(a1, nullptr);
+  EXPECT_NEAR(a0->x - a1->x, 20.0f, 0.5f);
+}
+
 }  // namespace swg::ut::textlayout_ut

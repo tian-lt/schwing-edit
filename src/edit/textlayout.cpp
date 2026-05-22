@@ -66,7 +66,9 @@ layout_result layout_viewport(const piecetable& ptable, const linetable& ltable,
     std::string text = text_len > 0 ? ptable.get(ln.beg, text_len) : std::string{};
     auto shaped = shaper.shape(font.hbfont(), text);
 
-    const float pen_x0 = static_cast<float>(params.padding_x);
+    // pen_x0 is the screen-space x of the line's left edge — padding minus
+    // the horizontal scroll offset so layout coordinates stay in screen space.
+    const float pen_x0 = static_cast<float>(params.padding_x - params.scroll_x);
     const float top_y =
         static_cast<float>(params.padding_y - params.scroll_y +
                            static_cast<int>(i) * out.line_height);
@@ -108,6 +110,12 @@ layout_result layout_viewport(const piecetable& ptable, const linetable& ltable,
     out.carets.push_back({.byte_pos = ln.beg + text_len,
                           .x = pen_x,
                           .baseline_y = baseline_y});
+    // Track the widest visible line in document space (undo the scroll_x
+    // subtraction): this is what the host uses to size the H scrollbar.
+    int line_doc_w = static_cast<int>(pen_x - pen_x0) + params.padding_x;
+    if (line_doc_w > out.content_width) {
+      out.content_width = line_doc_w;
+    }
   }
 
   // Trailing virtual caret if the document ends with a terminator: every EOL
@@ -122,7 +130,7 @@ layout_result layout_viewport(const piecetable& ptable, const linetable& ltable,
             static_cast<int>(lines.size()) * out.line_height);
         const float baseline_y = top_y + static_cast<float>(out.ascent);
         out.carets.push_back({.byte_pos = last.beg + last.length,
-                              .x = static_cast<float>(params.padding_x),
+                              .x = static_cast<float>(params.padding_x - params.scroll_x),
                               .baseline_y = baseline_y});
       }
     }
@@ -132,8 +140,14 @@ layout_result layout_viewport(const piecetable& ptable, const linetable& ltable,
     const float baseline_y =
         static_cast<float>(params.padding_y - params.scroll_y + out.ascent);
     out.carets.push_back({.byte_pos = 0,
-                          .x = static_cast<float>(params.padding_x),
+                          .x = static_cast<float>(params.padding_x - params.scroll_x),
                           .baseline_y = baseline_y});
+  }
+
+  // Always include the left padding in content_width so an empty document still
+  // produces a non-zero extent for scrollbar sizing.
+  if (out.content_width < params.padding_x) {
+    out.content_width = params.padding_x;
   }
 
   return out;

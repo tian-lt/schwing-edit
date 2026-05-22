@@ -36,12 +36,16 @@ struct layout_result {
   std::vector<caret_anchor> carets;
   int line_height = 0;
   int ascent = 0;
+  // Maximum horizontal extent (in document space, px) reached by any line
+  // touched during layout. Used by the host to size the horizontal scrollbar.
+  int content_width = 0;
 };
 
 struct layout_params {
   int viewport_w = 0;
   int viewport_h = 0;
   int scroll_y = 0;      // px from top of document to top of viewport
+  int scroll_x = 0;      // px from left of document to left of viewport
   int padding_x = 0;
   int padding_y = 0;
 };

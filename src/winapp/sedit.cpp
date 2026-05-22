@@ -371,7 +371,16 @@ class Sedit : public swg::host {
     std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, 0x00FFFFFFu);
 
     // Compute the layout — pure CPU work in src/edit/.
-    auto layout = render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_);
+    auto layout =
+        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
+    // Sync cached metrics from the freshly computed layout. line_height_px_
+    // must be set before UpdateScrollBars so the V scrollbar gets the right
+    // page size on the first paint.
+    if (layout.line_height > 0) line_height_px_ = layout.line_height;
+    if (layout.content_width > content_width_) {
+      content_width_ = layout.content_width;
+    }
+    UpdateScrollBars();
 
     // Draw selection highlight rectangles first, behind text.
     if (has_selection()) {
@@ -419,6 +428,7 @@ class Sedit : public swg::host {
   LRESULT OnSize(int width, int height) {
     viewport.w = width;
     viewport.h = height;
+    UpdateScrollBars();
     return 0;
   }
   LRESULT OnSetFocus() {
@@ -492,7 +502,10 @@ class Sedit : public swg::host {
 
   // Scroll so that the current caret line is within the visible viewport.
   void EnsureCaretVisible() {
-    if (viewport.h <= 0 || line_height_px_ <= 0) return;
+    if (viewport.h <= 0 || line_height_px_ <= 0) {
+      UpdateScrollBars();
+      return;
+    }
     const auto& lt = doc_.lines();
     size_t li = (lt.line_count() == 0) ? 0 : lt.line_at_pos(inspos());
     const int padding_y = 2;
@@ -504,7 +517,70 @@ class Sedit : public swg::host {
       scroll_y_ = caret_bot - viewport.h;
     }
     scroll_y_ = std::max(0, scroll_y_);
+    EnsureCaretHorizontallyVisible();
     UpdateStatusBar();
+    UpdateScrollBars();
+  }
+
+  // Compute the caret's screen-space X (in document coordinates) and scroll
+  // horizontally so it stays visible. We need a fresh layout since caret x
+  // depends on glyph shaping.
+  void EnsureCaretHorizontallyVisible() {
+    if (viewport.w <= 0) return;
+    auto layout =
+        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, 0);
+    // Find the caret_anchor for inspos(). carets are in document space because
+    // we passed scroll_x = 0.
+    float caret_doc_x = 0;
+    for (const auto& a : layout.carets) {
+      if (a.byte_pos == inspos()) {
+        caret_doc_x = a.x;
+        break;
+      }
+    }
+    const int padding_x = 4;
+    const int caret_w = std::max(1, caret_width_px_);
+    int cx = static_cast<int>(caret_doc_x);
+    if (cx - scroll_x_ < padding_x) {
+      scroll_x_ = std::max(0, cx - padding_x);
+    } else if (cx + caret_w - scroll_x_ > viewport.w) {
+      scroll_x_ = cx + caret_w - viewport.w;
+    }
+    scroll_x_ = std::max(0, scroll_x_);
+  }
+
+  // Configure both scrollbars based on the current viewport, document height,
+  // and the most recent content_width measurement. Call after viewport size
+  // changes, scroll changes, and document mutations.
+  void UpdateScrollBars() {
+    if (viewport.h > 0 && line_height_px_ > 0) {
+      const size_t n_lines = std::max<size_t>(1, doc_.lines().line_count());
+      const int doc_h = static_cast<int>(n_lines) * line_height_px_ + 4;
+      SCROLLINFO si{};
+      si.cbSize = sizeof(si);
+      si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+      si.nMin = 0;
+      si.nMax = std::max(0, doc_h - 1);
+      si.nPage = static_cast<UINT>(std::max(1, viewport.h));
+      scroll_y_ = std::clamp(scroll_y_, 0, std::max(0, doc_h - viewport.h));
+      si.nPos = scroll_y_;
+      SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
+    }
+    if (viewport.w > 0) {
+      // content_width_ is the widest visible line. Make sure the H scrollbar
+      // can always reach at least scroll_x_ + viewport.w so we don't jitter
+      // when the caret is on a long off-screen line.
+      const int doc_w = std::max({content_width_, scroll_x_ + viewport.w, viewport.w});
+      SCROLLINFO si{};
+      si.cbSize = sizeof(si);
+      si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+      si.nMin = 0;
+      si.nMax = std::max(0, doc_w - 1);
+      si.nPage = static_cast<UINT>(std::max(1, viewport.w));
+      scroll_x_ = std::clamp(scroll_x_, 0, std::max(0, doc_w - viewport.w));
+      si.nPos = scroll_x_;
+      SetScrollInfo(hwnd_, SB_HORZ, &si, TRUE);
+    }
   }
 
   // Push the current line/column + EOL + encoding to the status bar control.
@@ -651,7 +727,8 @@ class Sedit : public swg::host {
         return false;
     }
     if (!m) return false;
-    auto layout = render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_);
+    auto layout =
+        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
     if (shift) {
       shift_move_caret(*m, &layout);
     } else {
@@ -754,9 +831,12 @@ class Sedit : public swg::host {
     std::string normalized = NormalizeEol(utf8, detected);
     load_text(normalized, detected);
     scroll_y_ = 0;
+    scroll_x_ = 0;
+    content_width_ = 0;
     file_path_ = path;
     clear_dirty();
     UpdateTitle();
+    UpdateScrollBars();
     return true;
   }
 
@@ -787,9 +867,12 @@ class Sedit : public swg::host {
     if (!ConfirmDiscardChanges()) return;
     load_text({}, doc_.eol_mode());
     scroll_y_ = 0;
+    scroll_x_ = 0;
+    content_width_ = 0;
     file_path_.clear();
     clear_dirty();
     UpdateTitle();
+    UpdateScrollBars();
   }
 
   void DoOpen() {
@@ -872,7 +955,8 @@ class Sedit : public swg::host {
 
   LRESULT OnLButtonDown(int x, int y) {
     SetFocus(hwnd_);
-    auto layout = render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_);
+    auto layout =
+        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
     const size_t pos = swg::host::hit_test(layout, static_cast<float>(x),
                                            static_cast<float>(y) + layout.ascent / 2.0f);
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -896,7 +980,8 @@ class Sedit : public swg::host {
 
   LRESULT OnMouseMove(int x, int y, WPARAM wparam) {
     if (!drag_active_ || (wparam & MK_LBUTTON) == 0) return 0;
-    auto layout = render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_);
+    auto layout =
+        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
     const size_t pos = swg::host::hit_test(layout, static_cast<float>(x),
                                            static_cast<float>(y) + layout.ascent / 2.0f);
     caret_keep_anchor(pos);
@@ -925,21 +1010,111 @@ class Sedit : public swg::host {
     set_selection_anchor(a);
   }
 
-  LRESULT OnMouseWheel(int delta) {
-    // 3 lines per wheel notch (WHEEL_DELTA = 120).
+  LRESULT OnMouseWheel(int delta, WPARAM keys) {
+    // 3 lines per wheel notch (WHEEL_DELTA = 120). With Shift held the wheel
+    // scrolls horizontally instead — matches the convention many editors use.
     if (line_height_px_ <= 0) line_height_px_ = 16;
-    const int step = (delta / WHEEL_DELTA) * 3 * line_height_px_;
-    int new_scroll = scroll_y_ - step;
-    new_scroll = std::max(0, new_scroll);
-    // Clamp to total document height.
+    const int step_lines = (delta / WHEEL_DELTA) * 3;
+    if ((keys & MK_SHIFT) != 0) {
+      ApplyHScrollDelta(-step_lines * line_height_px_);
+    } else {
+      ApplyVScrollDelta(-step_lines * line_height_px_);
+    }
+    return 0;
+  }
+
+  LRESULT OnMouseHWheel(int delta) {
+    // 1 character ~ line_height per WHEEL_DELTA notch — close enough.
+    if (line_height_px_ <= 0) line_height_px_ = 16;
+    const int step_px = (delta / WHEEL_DELTA) * 3 * line_height_px_;
+    ApplyHScrollDelta(step_px);
+    return 0;
+  }
+
+  // Centralized vertical scroll mutation: clamps, repaints, and refreshes the
+  // scrollbar. All vertical scroll sources funnel through here.
+  void ApplyVScrollDelta(int delta_y) {
     const size_t n_lines = std::max<size_t>(1, doc_.lines().line_count());
-    const int doc_h = static_cast<int>(n_lines) * line_height_px_;
-    const int max_scroll = std::max(0, doc_h - viewport.h / 2);
-    new_scroll = std::min(new_scroll, max_scroll);
+    const int doc_h = static_cast<int>(n_lines) * line_height_px_ + 4;
+    const int max_scroll = std::max(0, doc_h - viewport.h);
+    int new_scroll = std::clamp(scroll_y_ + delta_y, 0, max_scroll);
     if (new_scroll != scroll_y_) {
       scroll_y_ = new_scroll;
+      UpdateScrollBars();
       InvalidateRect(hwnd_, nullptr, FALSE);
     }
+  }
+
+  void SetVScroll(int new_pos) {
+    ApplyVScrollDelta(new_pos - scroll_y_);
+  }
+
+  // Centralized horizontal scroll mutation.
+  void ApplyHScrollDelta(int delta_x) {
+    const int doc_w = std::max({content_width_, scroll_x_ + viewport.w, viewport.w});
+    const int max_scroll = std::max(0, doc_w - viewport.w);
+    int new_scroll = std::clamp(scroll_x_ + delta_x, 0, max_scroll);
+    if (new_scroll != scroll_x_) {
+      scroll_x_ = new_scroll;
+      UpdateScrollBars();
+      InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+  }
+
+  void SetHScroll(int new_pos) {
+    ApplyHScrollDelta(new_pos - scroll_x_);
+  }
+
+  // Translate a WM_VSCROLL notification into a scroll position update.
+  LRESULT OnVScroll(WPARAM wparam) {
+    const int code = LOWORD(wparam);
+    const int line = std::max(1, line_height_px_);
+    const int page = std::max(line, viewport.h - line);
+    int target = scroll_y_;
+    switch (code) {
+      case SB_LINEUP:        target -= line; break;
+      case SB_LINEDOWN:      target += line; break;
+      case SB_PAGEUP:        target -= page; break;
+      case SB_PAGEDOWN:      target += page; break;
+      case SB_TOP:           target = 0; break;
+      case SB_BOTTOM:        target = INT_MAX; break;
+      case SB_THUMBPOSITION:
+      case SB_THUMBTRACK: {
+        SCROLLINFO si{};
+        si.cbSize = sizeof(si);
+        si.fMask = SIF_TRACKPOS;
+        if (GetScrollInfo(hwnd_, SB_VERT, &si)) target = si.nTrackPos;
+        break;
+      }
+      default: return 0;
+    }
+    SetVScroll(target);
+    return 0;
+  }
+
+  LRESULT OnHScroll(WPARAM wparam) {
+    const int code = LOWORD(wparam);
+    const int line = std::max(1, line_height_px_);
+    const int page = std::max(line, viewport.w - line);
+    int target = scroll_x_;
+    switch (code) {
+      case SB_LINELEFT:      target -= line; break;
+      case SB_LINERIGHT:     target += line; break;
+      case SB_PAGELEFT:      target -= page; break;
+      case SB_PAGERIGHT:     target += page; break;
+      case SB_LEFT:          target = 0; break;
+      case SB_RIGHT:         target = INT_MAX; break;
+      case SB_THUMBPOSITION:
+      case SB_THUMBTRACK: {
+        SCROLLINFO si{};
+        si.cbSize = sizeof(si);
+        si.fMask = SIF_TRACKPOS;
+        if (GetScrollInfo(hwnd_, SB_HORZ, &si)) target = si.nTrackPos;
+        break;
+      }
+      default: return 0;
+    }
+    SetHScroll(target);
     return 0;
   }
 
@@ -1131,6 +1306,11 @@ class Sedit : public swg::host {
     doc_.reset(path, std::nullopt);
     (void)pt;  // The current plaindoc::reset only takes a font path; we keep
                // size as default. A future improvement is to plumb size too.
+    // Glyph metrics change with the font; invalidate cached content width and
+    // recompute line height + scrollbars at the next paint.
+    content_width_ = 0;
+    line_height_px_ = 0;
+    UpdateScrollBars();
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
 
@@ -1259,7 +1439,17 @@ class Sedit : public swg::host {
           if (self) return self->OnLButtonUp(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
           break;
         case WM_MOUSEWHEEL:
-          if (self) return self->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wparam));
+          if (self) return self->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wparam),
+                                              GET_KEYSTATE_WPARAM(wparam));
+          break;
+        case WM_MOUSEHWHEEL:
+          if (self) return self->OnMouseHWheel(GET_WHEEL_DELTA_WPARAM(wparam));
+          break;
+        case WM_VSCROLL:
+          if (self) return self->OnVScroll(wparam);
+          break;
+        case WM_HSCROLL:
+          if (self) return self->OnHScroll(wparam);
           break;
         case WM_CAPTURECHANGED:
           if (self) self->drag_active_ = false;
@@ -1340,6 +1530,11 @@ class Sedit : public swg::host {
   int caret_width_px_ = 1;
   int line_height_px_ = 0;
   int scroll_y_ = 0;
+  int scroll_x_ = 0;
+  // Cached document content width (px) from the most recent layout. Updated by
+  // every render() call. Used to size the horizontal scrollbar so it tracks the
+  // widest line currently in view.
+  int content_width_ = 0;
   bool drag_active_ = false;
   std::wstring file_path_;
   bool last_title_dirty_ = false;

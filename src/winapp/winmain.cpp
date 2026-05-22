@@ -56,7 +56,8 @@ class MainWindow {
     THROW_IF_WIN32_BOOL_FALSE(GetClientRect(hwnd.get(), &rc));
     int statusH = StatusBarHeight();
     editHwnd_ = wil::unique_hwnd{
-        CreateWindowEx(0, TEXT("SEditWindowClass"), nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0,
+        CreateWindowEx(0, TEXT("SEditWindowClass"), nullptr,
+                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL, 0,
                        0, rc.right - rc.left, rc.bottom - rc.top - statusH,
                        hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());

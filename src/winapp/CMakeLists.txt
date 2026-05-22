@@ -6,6 +6,7 @@ configure_file(
 
 add_executable(app WIN32
   sedit.cpp
+  glcaret.cpp
   theme.cpp
   winmain.cpp
   ${CMAKE_BINARY_DIR}/res.rc

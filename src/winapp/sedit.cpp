@@ -22,6 +22,7 @@
 #include <wil/result_macros.h>
 // app
 #include "res.h"
+#include "glcaret.hpp"
 #include "theme.hpp"
 // swg
 #include <plaindoc.hpp>
@@ -291,6 +292,7 @@ class Sedit : public swg::host {
   }
 
   ~Sedit() {
+    caret_.Destroy();
     if (mem_dc_) {
       if (old_bitmap_) SelectObject(mem_dc_, old_bitmap_);
       DeleteDC(mem_dc_);
@@ -411,10 +413,13 @@ class Sedit : public swg::host {
     CompositeAllGlyphs(bb_pixels_, bb_w_, bb_h_, atlas.bitmap().data(), atlas.width(),
                        atlas.height(), layout, /*fg=*/palette.editor_fg);
 
+    // Move the OpenGL caret child window to its new position BEFORE BitBlt so
+    // that WS_CLIPCHILDREN excludes the new rect from the BitBlt destination.
+    // Without this ordering the old caret rect would keep stale pixels.
+    PlaceCaret(layout);
+
     BitBlt(hdc, 0, 0, bb_w_, bb_h_, mem_dc_, 0, 0, SRCCOPY);
     EndPaint(hwnd_, &ps);
-
-    PlaceCaret(layout);
     return 0;
   }
 
@@ -450,24 +455,18 @@ class Sedit : public swg::host {
     if (line_height_px_ <= 0) {
       line_height_px_ = static_cast<int>(24 * GetDpiForWindow(hwnd_) / 96.0);
     }
-    CreateCaret(hwnd_, nullptr, caret_width_px_, line_height_px_);
-    ShowCaret(hwnd_);
+    caret_.SetColor(swg::winapp::theme::current_palette().editor_fg);
+    caret_.Show(hwnd_);
     return 0;
   }
   LRESULT OnKillFocus() {
-    HideCaret(hwnd_);
-    DestroyCaret();
+    caret_.Hide();
     return 0;
   }
 
   void PlaceCaret(const swg::layout_result& layout) {
     if (layout.line_height > 0 && layout.line_height != line_height_px_) {
       line_height_px_ = layout.line_height;
-      if (GetFocus() == hwnd_) {
-        DestroyCaret();
-        CreateCaret(hwnd_, nullptr, caret_width_px_, line_height_px_);
-        ShowCaret(hwnd_);
-      }
     }
     const size_t pos = inspos();
     const swg::caret_anchor* exact = nullptr;
@@ -486,9 +485,12 @@ class Sedit : public swg::host {
       chosen = &layout.carets.front();
     }
     if (chosen) {
-      int x = static_cast<int>(chosen->x);
-      int y = static_cast<int>(chosen->baseline_y) - layout.ascent;
-      SetCaretPos(x, y);
+      const int x = static_cast<int>(chosen->x);
+      const int y = static_cast<int>(chosen->baseline_y) - layout.ascent;
+      caret_.Place(x, y, caret_width_px_, line_height_px_);
+      // Keep the palette in sync so theme switches recolour the caret on
+      // the next paint without an explicit handler.
+      caret_.SetColor(swg::winapp::theme::current_palette().editor_fg);
     }
   }
 
@@ -1556,6 +1558,7 @@ class Sedit : public swg::host {
  private:
   HWND hwnd_ = nullptr;
   swg::plaindoc doc_;
+  swg::winapp::GlCaret caret_;
   wchar_t surrogate_[2] = {};
   int caret_width_px_ = 1;
   int line_height_px_ = 0;

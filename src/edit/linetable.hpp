@@ -1,5 +1,6 @@
 #pragma once
 // std
+#include <span>
 #include <vector>
 // swg
 #include "piecetable.hpp"
@@ -31,16 +32,20 @@ class linetable {
   FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_into_empty_table);
 #endif  // SWGUT
 
+ public:
   struct line {
     size_t beg = 0;     // position of the first character of the line
     size_t length = 0;  // length of the line, including linefeed (e.g. \n, \r\n, etc. )
   };
 
- public:
   explicit linetable(eol eol) : eol_(eol) {}
   bool rebuild(const piecetable& ptable, eol eol);
   bool insert(size_t pos, std::string_view data);
   size_t line_at_pos(size_t pos) const;
+
+  std::span<const line> lines() const noexcept { return linelist_; }
+  size_t line_count() const noexcept { return linelist_.size(); }
+  eol eol_mode() const noexcept { return eol_; }
 
  private:
   std::vector<line> linelist_;

@@ -16,10 +16,14 @@ struct ft_face_deleter {
 struct hb_font_deleter {
   void operator()(hb_font_t*);
 };
+struct hb_buffer_deleter {
+  void operator()(hb_buffer_t*);
+};
 }  // namespace details
 
 using unique_ft_face = std::unique_ptr<std::remove_pointer_t<FT_Face>, details::ft_face_deleter>;
 using unique_hb_font = std::unique_ptr<hb_font_t, details::hb_font_deleter>;
+using unique_hb_buffer = std::unique_ptr<hb_buffer_t, details::hb_buffer_deleter>;
 
 FT_Library get_ft_library();
 void initialize();

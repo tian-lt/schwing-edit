@@ -1,2 +1,6 @@
 .vscode/
 src/b/
+
+*.dll
+*.exe
+*.log

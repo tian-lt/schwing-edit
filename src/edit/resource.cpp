@@ -14,6 +14,8 @@ void ft_face_deleter::operator()(FT_Face ptr) { check_fterror(FT_Done_Face(ptr))
 
 void hb_font_deleter::operator()(hb_font_t* ptr) { hb_font_destroy(ptr); }
 
+void hb_buffer_deleter::operator()(hb_buffer_t* ptr) { hb_buffer_destroy(ptr); }
+
 }  // namespace details
 
 void check_fterror(FT_Error ec) {

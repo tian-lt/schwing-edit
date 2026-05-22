@@ -18,6 +18,8 @@ find_package(wil CONFIG REQUIRED)
 target_link_libraries(app PRIVATE
   edit
   WIL::WIL
+  Dwmapi
+  Comdlg32
 )
 
 add_executable(schwing::app ALIAS app)

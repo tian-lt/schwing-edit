@@ -28,8 +28,8 @@ void plaindoc::insert(size_t pos, std::string_view data) {
 
 void plaindoc::erase(size_t pos, size_t length) {
   ptable_.erase(pos, length);
-  // For now, rebuild the line table to keep line offsets in sync.
-  mixeol_ = ltable_.rebuild(ptable_, ltable_.eol_mode());
+  // Incremental line-table maintenance — avoids O(N) rebuild on every edit.
+  ltable_.erase(ptable_, pos, length);
 }
 
 void plaindoc::ensure_render_resources() {

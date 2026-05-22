@@ -380,6 +380,19 @@ class Sedit : public swg::host {
     if (layout.content_width > content_width_) {
       content_width_ = layout.content_width;
     }
+
+    // Adjust horizontal scroll to keep the caret in view, then re-render once
+    // if scroll_x_ changed. Doing this here (instead of via an extra render in
+    // EnsureCaretVisible) means we never run two full layouts per keystroke
+    // for the common case where the caret remains horizontally visible.
+    if (AdjustScrollXForCaret(layout)) {
+      layout =
+          render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
+      if (layout.content_width > content_width_) {
+        content_width_ = layout.content_width;
+      }
+    }
+
     UpdateScrollBars();
 
     // Draw selection highlight rectangles first, behind text.
@@ -501,6 +514,8 @@ class Sedit : public swg::host {
   }
 
   // Scroll so that the current caret line is within the visible viewport.
+  // Horizontal-scroll-into-view is handled in OnPaint (where we already have
+  // a layout) — keeping the keystroke path doing exactly zero extra layouts.
   void EnsureCaretVisible() {
     if (viewport.h <= 0 || line_height_px_ <= 0) {
       UpdateScrollBars();
@@ -517,36 +532,40 @@ class Sedit : public swg::host {
       scroll_y_ = caret_bot - viewport.h;
     }
     scroll_y_ = std::max(0, scroll_y_);
-    EnsureCaretHorizontallyVisible();
     UpdateStatusBar();
     UpdateScrollBars();
   }
 
-  // Compute the caret's screen-space X (in document coordinates) and scroll
-  // horizontally so it stays visible. We need a fresh layout since caret x
-  // depends on glyph shaping.
-  void EnsureCaretHorizontallyVisible() {
-    if (viewport.w <= 0) return;
-    auto layout =
-        render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, 0);
-    // Find the caret_anchor for inspos(). carets are in document space because
-    // we passed scroll_x = 0.
-    float caret_doc_x = 0;
+  // Given a fresh layout (computed with the current scroll_y_/scroll_x_),
+  // adjust scroll_x_ so the caret is horizontally visible. Returns true iff
+  // scroll_x_ changed and the caller needs to re-render. Cheap: just looks
+  // up the caret's screen-space x in the layout we already produced.
+  bool AdjustScrollXForCaret(const swg::layout_result& layout) {
+    if (viewport.w <= 0) return false;
+    const size_t pos = inspos();
+    const swg::caret_anchor* exact = nullptr;
     for (const auto& a : layout.carets) {
-      if (a.byte_pos == inspos()) {
-        caret_doc_x = a.x;
+      if (a.byte_pos == pos) {
+        exact = &a;
         break;
       }
     }
+    if (!exact) return false;  // caret off-screen vertically; nothing to do
     const int padding_x = 4;
     const int caret_w = std::max(1, caret_width_px_);
-    int cx = static_cast<int>(caret_doc_x);
-    if (cx - scroll_x_ < padding_x) {
-      scroll_x_ = std::max(0, cx - padding_x);
-    } else if (cx + caret_w - scroll_x_ > viewport.w) {
-      scroll_x_ = cx + caret_w - viewport.w;
+    // The carets in `layout` are already in screen space; convert back to
+    // document space by adding scroll_x_.
+    const int caret_doc_x = static_cast<int>(exact->x) + scroll_x_;
+    int new_scroll_x = scroll_x_;
+    if (caret_doc_x - new_scroll_x < padding_x) {
+      new_scroll_x = std::max(0, caret_doc_x - padding_x);
+    } else if (caret_doc_x + caret_w - new_scroll_x > viewport.w) {
+      new_scroll_x = caret_doc_x + caret_w - viewport.w;
     }
-    scroll_x_ = std::max(0, scroll_x_);
+    new_scroll_x = std::max(0, new_scroll_x);
+    if (new_scroll_x == scroll_x_) return false;
+    scroll_x_ = new_scroll_x;
+    return true;
   }
 
   // Configure both scrollbars based on the current viewport, document height,

@@ -14,12 +14,13 @@ class piecetable {
   piecetable() = default;
   explicit piecetable(std::string_view initbuf) noexcept
       : initbuf_(initbuf),
-        piecelist_({piece{.offset = 0, .length = initbuf.length(), .is_original = true}}) {}
+        piecelist_({piece{.offset = 0, .length = initbuf.length(), .is_original = true}}),
+        length_(initbuf.length()) {}
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
   std::string get(size_t pos, size_t length) const;
   void get_to(size_t pos, std::span<char> out) const;
-  size_t length() const;
+  size_t length() const noexcept { return length_; }
 
  private:
   struct piece {
@@ -32,6 +33,7 @@ class piecetable {
   std::vector<piece> piecelist_;
   std::string_view initbuf_;
   std::string addbuf_;
+  size_t length_ = 0;
 };
 
 }  // namespace swg

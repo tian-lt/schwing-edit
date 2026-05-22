@@ -52,14 +52,6 @@ struct piecetable::impl {
   }
 };
 
-size_t piecetable::length() const {
-  size_t len = 0;
-  for (const auto& p : piecelist_) {
-    len += p.length;
-  }
-  return len;
-}
-
 std::string piecetable::get(size_t pos, size_t length) const {
   std::string result;
   result.resize(length);
@@ -77,6 +69,7 @@ void piecetable::insert(size_t pos, std::string_view data) {
   }
   auto add_offset = addbuf_.size();
   addbuf_ += data;
+  length_ += data.length();
   if (piecelist_.empty()) {
     piecelist_.push_back(piece{.offset = add_offset, .length = data.length()});
     return;
@@ -126,6 +119,10 @@ void piecetable::erase(size_t pos, size_t length) {
   if (idx == piecelist_.size()) {
     throw std::out_of_range{"pos out of range"};
   }
+  if (pos + length > length_) {
+    throw std::out_of_range{"length out of range"};
+  }
+  length_ -= length;
 
   auto offset = pos - beg;
   if (offset > 0) {

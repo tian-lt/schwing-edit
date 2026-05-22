@@ -10,24 +10,14 @@ namespace swg {
 
 namespace {
 
-size_t strip_eol_bytes(const piecetable& ptable, const linetable::line& ln) {
-  size_t text_len = ln.length;
-  if (text_len == 0) {
+// Strip trailing line-terminator bytes from a line. We rely on the cached
+// `eol_bytes` field maintained by linetable so this is constant time and
+// avoids hitting the piecetable per visible line on every paint.
+size_t strip_eol_bytes(const piecetable& /*ptable*/, const linetable::line& ln) {
+  if (ln.length < ln.eol_bytes) {
     return 0;
   }
-  std::string trail = ptable.get(ln.beg + text_len - 1, 1);
-  if (trail == "\n") {
-    --text_len;
-    if (text_len > 0) {
-      std::string tr2 = ptable.get(ln.beg + text_len - 1, 1);
-      if (tr2 == "\r") {
-        --text_len;
-      }
-    }
-  } else if (trail == "\r") {
-    --text_len;
-  }
-  return text_len;
+  return ln.length - ln.eol_bytes;
 }
 
 }  // namespace
@@ -122,17 +112,14 @@ layout_result layout_viewport(const piecetable& ptable, const linetable& ltable,
   // implies a (possibly empty) following line that has no `line` entry.
   if (!lines.empty()) {
     const auto& last = lines.back();
-    if (last.length > 0) {
-      std::string trail = ptable.get(last.beg + last.length - 1, 1);
-      if (trail == "\n" || trail == "\r") {
-        const float top_y = static_cast<float>(
-            params.padding_y - params.scroll_y +
-            static_cast<int>(lines.size()) * out.line_height);
-        const float baseline_y = top_y + static_cast<float>(out.ascent);
-        out.carets.push_back({.byte_pos = last.beg + last.length,
-                              .x = static_cast<float>(params.padding_x - params.scroll_x),
-                              .baseline_y = baseline_y});
-      }
+    if (last.eol_bytes > 0) {
+      const float top_y = static_cast<float>(
+          params.padding_y - params.scroll_y +
+          static_cast<int>(lines.size()) * out.line_height);
+      const float baseline_y = top_y + static_cast<float>(out.ascent);
+      out.carets.push_back({.byte_pos = last.beg + last.length,
+                            .x = static_cast<float>(params.padding_x - params.scroll_x),
+                            .baseline_y = baseline_y});
     }
   } else {
     // Empty document: still expose a caret at (0,0) so the UI has somewhere

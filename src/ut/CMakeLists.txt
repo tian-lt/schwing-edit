@@ -9,6 +9,7 @@ add_executable(ut
   host_selection_tests.cpp
   host_undo_tests.cpp
   linetable_api_tests.cpp
+  linetable_perf_tests.cpp
   linetable_tests.cpp
   piecetable_tests.cpp
   textlayout_tests.cpp

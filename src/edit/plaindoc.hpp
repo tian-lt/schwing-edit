@@ -33,6 +33,10 @@ class host {
   void erase_char();
   void delete_char();
   void linefeed();
+  size_t caret_pos() const { return inspos_; }
+  void caret_pos(size_t pos);
+  void move_left();
+  void move_right();
 
  protected:
   plaindoc* doc = nullptr;

@@ -286,13 +286,18 @@ class Sedit : public swg::host {
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
       : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
     doc = &doc_;
-    const double ratio = GetDpiForWindow(hwnd_) / 96.0;
+    current_dpi_ = GetDpiForWindow(hwnd_);
+    if (current_dpi_ <= 0) current_dpi_ = 96;
+    const double ratio = current_dpi_ / 96.0;
     caret_width_px_ = std::max(1, static_cast<int>(1 * ratio));
     line_height_px_ = static_cast<int>(24 * ratio);
     // Anchor the zoom ladder's "100%" to whatever pixel size the editor was
-    // constructed with (default_font_size today, but could be a persisted
-    // user choice in the future).
+    // constructed with, interpreted as logical 96-DPI pixels. ZoomedFontSize
+    // scales this back up to the current DPI for the renderer.
     if (fontsize > 0.0) zoom_base_font_size_ = fontsize;
+    // Re-rasterize at the DPI-corrected pixel size so the initial paint
+    // doesn't render at the 96-DPI baseline on a high-DPI display.
+    doc_.reset(std::nullopt, std::nullopt, ZoomedFontSize());
   }
 
   ~Sedit() {
@@ -472,6 +477,27 @@ class Sedit : public swg::host {
     UpdateScrollBars();
     return 0;
   }
+
+  // Re-rasterize everything that depends on monitor DPI. Called from
+  // WM_DPICHANGED_BEFOREPARENT (per-monitor DPI awareness V2) when the
+  // window's monitor changes scale factor. The font size baseline is stored
+  // DPI-agnostic (in 96-DPI pixels) so we just pick up the new dpi and call
+  // ApplyZoom() to push the new physical pixel size into fontengine.
+  LRESULT OnDpiChanged(int new_dpi) {
+    if (new_dpi <= 0) new_dpi = 96;
+    if (new_dpi == current_dpi_) return 0;
+    const double ratio = new_dpi / 96.0;
+    current_dpi_ = new_dpi;
+    caret_width_px_ = std::max(1, static_cast<int>(1 * ratio));
+    // Force OnPaint to recompute line height from the new layout; the old
+    // value is wrong for the new DPI.
+    line_height_px_ = 0;
+    // Re-rasterize at the new DPI's pixel size. ApplyZoom() also flags
+    // pending_ensure_caret_visible_ so the caret stays in view.
+    ApplyZoom();
+    return 0;
+  }
+
   LRESULT OnSetFocus() {
     if (line_height_px_ <= 0) {
       line_height_px_ = static_cast<int>(24 * GetDpiForWindow(hwnd_) / 96.0);
@@ -1352,12 +1378,14 @@ class Sedit : public swg::host {
 
   void DoChooseFont() {
     LOGFONTW lf{};
-    // Seed with the current font: walk the registry for the family of the
-    // current font path. For simplicity we just set the default fields and let
-    // the user override via the standard ChooseFont dialog.
+    // Seed with a sensible default font: family = Arial, size = the editor's
+    // current *physical* pixel size (zoom_base_font_size_ is logical 96-DPI
+    // pixels, so multiply by current DPI scale). lfHeight is in pixels at the
+    // current DPI per the Win32 font dialog contract.
     HDC dc = GetDC(hwnd_);
-    int dpi = GetDpiForWindow(hwnd_);
-    lf.lfHeight = -MulDiv(static_cast<int>(default_font_size), dpi, 72);
+    const int dpi = current_dpi_ > 0 ? current_dpi_ : 96;
+    const double dpi_scale = dpi / 96.0;
+    lf.lfHeight = -static_cast<int>(zoom_base_font_size_ * dpi_scale + 0.5);
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcsncpy_s(lf.lfFaceName, L"Arial", _TRUNCATE);
@@ -1376,17 +1404,21 @@ class Sedit : public swg::host {
     std::wstring face = lf.lfFaceName;
     std::string path = ResolveFontPath(face);
     if (path.empty()) path = default_font_path;
-    // lfHeight is the negative cell height in *pixels* at the current DPI.
-    // fontengine treats fontsize_ as a pixel size (FT_Set_Pixel_Sizes), so we
-    // pass the pixel cell height directly — no point conversion.
-    double pixel_size = std::abs(lf.lfHeight);
-    // The picked size becomes the new 100% baseline for the zoom ladder so
-    // subsequent Ctrl+± steps scale relative to what the user chose, not the
-    // hardcoded default.
-    if (pixel_size > 0.0) zoom_base_font_size_ = pixel_size;
+    // lfHeight is the negative cell height in *pixels at the current DPI*.
+    // We store the baseline in *logical 96-DPI pixels* so re-scaling on a DPI
+    // change is a single multiplication. ZoomedFontSize() converts back to
+    // physical pixels for fontengine.
+    const double physical_pixel_size = std::abs(lf.lfHeight);
+    const double logical_pixel_size = dpi_scale > 0.0
+                                          ? physical_pixel_size / dpi_scale
+                                          : physical_pixel_size;
+    if (logical_pixel_size > 0.0) zoom_base_font_size_ = logical_pixel_size;
     zoom_idx_ = kDefaultZoomIdx;
+    // Hand the *physical* pixel size to fontengine via plaindoc::reset.
     doc_.reset(path, std::nullopt,
-               pixel_size > 0.0 ? std::optional<double>(pixel_size) : std::nullopt);
+               physical_pixel_size > 0.0
+                   ? std::optional<double>(physical_pixel_size)
+                   : std::nullopt);
     // Glyph metrics change with the font; invalidate cached content width and
     // recompute line height + scrollbars at the next paint.
     content_width_ = 0;
@@ -1457,12 +1489,16 @@ class Sedit : public swg::host {
 
   int ZoomPercent() const { return kZoomLadder[zoom_idx_]; }
 
-  // Map the current zoom level to a font pixel size. The "100% baseline" is
-  // either the constructor default or, if the user picks a font via the font
-  // dialog, the size they picked — Ctrl+± then scales relative to that.
+  // Map the current zoom level + DPI to a physical font pixel size. The "100%
+  // baseline" is stored in logical 96-DPI pixels; we scale by both the zoom
+  // ladder and the current monitor DPI so a "12 px" baseline renders at 12
+  // device pixels on a 96-DPI display and at 18 device pixels on a 144-DPI
+  // (150%) display — the same physical size in millimetres.
   double ZoomedFontSize() const {
+    const double dpi_scale = current_dpi_ > 0 ? current_dpi_ / 96.0 : 1.0;
     // Clamp to >=1 pixel so freetype doesn't get a degenerate cell size.
-    double sz = zoom_base_font_size_ * static_cast<double>(ZoomPercent()) / 100.0;
+    double sz = zoom_base_font_size_ * static_cast<double>(ZoomPercent()) / 100.0
+                * dpi_scale;
     return sz < 1.0 ? 1.0 : sz;
   }
 
@@ -1656,6 +1692,18 @@ class Sedit : public swg::host {
           }
           return 0;
         }
+        // Per-monitor-DPI v2: top-level parent gets WM_DPICHANGED; this child
+        // window gets WM_DPICHANGED_BEFOREPARENT (and _AFTERPARENT) so it can
+        // re-rasterize before the parent resizes us. The new DPI is in the
+        // LOWORD of wParam — same convention as the parent's WM_DPICHANGED.
+        case WM_DPICHANGED_BEFOREPARENT: {
+          if (self) {
+            int new_dpi = static_cast<int>(GetDpiForWindow(hwnd));
+            if (new_dpi <= 0) new_dpi = 96;
+            self->OnDpiChanged(new_dpi);
+          }
+          return 0;
+        }
         case WM_CREATE: {
           auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
           auto edit = std::make_unique<Sedit>(hwnd, default_font_path, default_font_size);
@@ -1716,11 +1764,16 @@ class Sedit : public swg::host {
   int content_width_ = 0;
   bool drag_active_ = false;
   int zoom_idx_ = 4;  // 100% — index into kZoomLadder.
-  // The "100%" font size in pixels. Initialized from the constructor's
-  // fontsize and overwritten whenever the user picks a new font via the
-  // Format > Font... dialog, so zoom always scales relative to the size
-  // the user explicitly chose.
+  // The "100%" font size in *logical 96-DPI pixels*. Stored DPI-agnostic so
+  // moving the window between monitors at different DPIs just re-applies the
+  // scale factor in ZoomedFontSize() without losing the user-picked size.
+  // Initialized from the constructor's fontsize and overwritten whenever the
+  // user picks a new font via Format > Font... .
   double zoom_base_font_size_ = default_font_size;
+  // Current monitor DPI for this window. Updated on construction and on
+  // WM_DPICHANGED_BEFOREPARENT so renderer + caret + scroll metrics stay in
+  // sync with the system DPI.
+  int current_dpi_ = 96;
   // Accumulator for Ctrl+MouseWheel deltas so precision touchpads (which
   // emit sub-WHEEL_DELTA increments) still zoom over time.
   int zoom_wheel_accum_ = 0;

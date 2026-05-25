@@ -186,6 +186,21 @@ class MainWindow {
         info->ptMinTrackSize.y = minHeight;
         return 0;
       }
+      // Per-monitor DPI v2: the OS recommends a new window rect in lparam
+      // when the window moves to a monitor with a different scale factor.
+      // We honour it so the title bar / menu bar pick up the new DPI; the
+      // editor child rasterizes the new font size via
+      // WM_DPICHANGED_BEFOREPARENT before the SetWindowPos here resizes it.
+      case WM_DPICHANGED: {
+        const RECT* suggested = reinterpret_cast<const RECT*>(lparam);
+        if (suggested) {
+          SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                       suggested->right - suggested->left,
+                       suggested->bottom - suggested->top,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return 0;
+      }
     }
     return DefWindowProc(hwnd, msg, wparam, lparam);
   }

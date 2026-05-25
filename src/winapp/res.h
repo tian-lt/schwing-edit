@@ -26,6 +26,10 @@
 
 #define IDM_FORMAT_FONT      1201
 
+#define IDM_VIEW_ZOOM_IN     1401
+#define IDM_VIEW_ZOOM_OUT    1402
+#define IDM_VIEW_ZOOM_RESET  1403
+
 #define IDM_HELP_ABOUT       1301
 
 // Go To dialog

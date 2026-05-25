@@ -289,6 +289,10 @@ class Sedit : public swg::host {
     const double ratio = GetDpiForWindow(hwnd_) / 96.0;
     caret_width_px_ = std::max(1, static_cast<int>(1 * ratio));
     line_height_px_ = static_cast<int>(24 * ratio);
+    // Anchor the zoom ladder's "100%" to whatever pixel size the editor was
+    // constructed with (default_font_size today, but could be a persisted
+    // user choice in the future).
+    if (fontsize > 0.0) zoom_base_font_size_ = fontsize;
   }
 
   ~Sedit() {
@@ -386,6 +390,23 @@ class Sedit : public swg::host {
     if (layout.line_height > 0) line_height_px_ = layout.line_height;
     if (layout.content_width > content_width_) {
       content_width_ = layout.content_width;
+    }
+
+    // If a zoom or font change just invalidated the layout, bring the caret
+    // back into view now that we have a fresh line_height_px_. We do the
+    // vertical scroll here so the horizontal pass below sees a layout that
+    // actually contains the caret's row.
+    if (pending_ensure_caret_visible_) {
+      pending_ensure_caret_visible_ = false;
+      const int prev_scroll_y = scroll_y_;
+      EnsureCaretVisible();
+      if (scroll_y_ != prev_scroll_y) {
+        layout =
+            render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
+        if (layout.content_width > content_width_) {
+          content_width_ = layout.content_width;
+        }
+      }
     }
 
     // Adjust horizontal scroll to keep the caret in view, then re-render once
@@ -617,8 +638,8 @@ class Sedit : public swg::host {
       case swg::eol::crlf: eol_label = L"CRLF"; break;
     }
     std::wstring text =
-        std::format(L"Ln {}, Col {}    |    {}    |    UTF-8",
-                    lc.line, lc.column, eol_label);
+        std::format(L"Ln {}, Col {}    |    {}%    |    {}    |    UTF-8",
+                    lc.line, lc.column, ZoomPercent(), eol_label);
     SetWindowTextW(status_hwnd_, text.c_str());
   }
 
@@ -659,6 +680,9 @@ class Sedit : public swg::host {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return true;
       case IDM_FORMAT_FONT:     DoChooseFont(); return true;
+      case IDM_VIEW_ZOOM_IN:    ZoomIn(); return true;
+      case IDM_VIEW_ZOOM_OUT:   ZoomOut(); return true;
+      case IDM_VIEW_ZOOM_RESET: ZoomReset(); return true;
       case IDM_HELP_ABOUT:      DoAbout(); return true;
     }
     return false;
@@ -686,6 +710,21 @@ class Sedit : public swg::host {
         case 'F': OpenFindDialog(false); return true;
         case 'H': OpenFindDialog(true); return true;
         case 'G': DoGoTo(); return true;
+        // Ctrl + '=' (the unshifted '+' key) and Ctrl + Numpad-Plus -> zoom in.
+        // Most keyboards send VK_OEM_PLUS for '=' / '+', so we honour it
+        // regardless of the shift state to match common editor behaviour.
+        case VK_OEM_PLUS:
+        case VK_ADD:
+          ZoomIn();
+          return true;
+        case VK_OEM_MINUS:
+        case VK_SUBTRACT:
+          ZoomOut();
+          return true;
+        case '0':
+        case VK_NUMPAD0:
+          ZoomReset();
+          return true;
         case 'Z':
           undo();
           EnsureCaretVisible();
@@ -701,6 +740,13 @@ class Sedit : public swg::host {
     if (ctrl && shift) {
       switch (vkey) {
         case 'S': DoSaveAs(); return true;
+        // Ctrl+Shift+'=' is how '+' is typed on US keyboards; treat the
+        // shifted variant as zoom-in too so the menu accelerator label
+        // ("Ctrl++") is honest.
+        case VK_OEM_PLUS:
+        case VK_ADD:
+          ZoomIn();
+          return true;
         case 'Z':
           redo();  // Ctrl+Shift+Z is an alternate redo binding.
           EnsureCaretVisible();
@@ -1034,6 +1080,12 @@ class Sedit : public swg::host {
   }
 
   LRESULT OnMouseWheel(int delta, WPARAM keys) {
+    // Ctrl+wheel -> zoom in/out (Notepad parity). Consume the event so the
+    // wheel does NOT also scroll the viewport on the same notch.
+    if ((keys & MK_CONTROL) != 0) {
+      HandleZoomWheel(delta);
+      return 0;
+    }
     // 3 lines per wheel notch (WHEEL_DELTA = 120). With Shift held the wheel
     // scrolls horizontally instead — matches the convention many editors use.
     if (line_height_px_ <= 0) line_height_px_ = 16;
@@ -1324,15 +1376,23 @@ class Sedit : public swg::host {
     std::wstring face = lf.lfFaceName;
     std::string path = ResolveFontPath(face);
     if (path.empty()) path = default_font_path;
-    // pt size: lfHeight is negative cell height in pixels at current DPI.
-    double pt = std::abs(lf.lfHeight) * 72.0 / dpi;
-    doc_.reset(path, std::nullopt);
-    (void)pt;  // The current plaindoc::reset only takes a font path; we keep
-               // size as default. A future improvement is to plumb size too.
+    // lfHeight is the negative cell height in *pixels* at the current DPI.
+    // fontengine treats fontsize_ as a pixel size (FT_Set_Pixel_Sizes), so we
+    // pass the pixel cell height directly — no point conversion.
+    double pixel_size = std::abs(lf.lfHeight);
+    // The picked size becomes the new 100% baseline for the zoom ladder so
+    // subsequent Ctrl+± steps scale relative to what the user chose, not the
+    // hardcoded default.
+    if (pixel_size > 0.0) zoom_base_font_size_ = pixel_size;
+    zoom_idx_ = kDefaultZoomIdx;
+    doc_.reset(path, std::nullopt,
+               pixel_size > 0.0 ? std::optional<double>(pixel_size) : std::nullopt);
     // Glyph metrics change with the font; invalidate cached content width and
     // recompute line height + scrollbars at the next paint.
     content_width_ = 0;
     line_height_px_ = 0;
+    pending_ensure_caret_visible_ = true;
+    UpdateStatusBar();
     UpdateScrollBars();
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
@@ -1383,6 +1443,92 @@ class Sedit : public swg::host {
     }
     RegCloseKey(key);
     return out;
+  }
+
+  // -------- Zoom (Notepad-parity ladder) --------
+
+  // Notepad's zoom ladder, in percent. Index `kDefaultZoomIdx` is the
+  // reference (100%). Ctrl+ +/-/0 and Ctrl+MouseWheel step through this.
+  static constexpr int kZoomLadder[] = {10, 25, 50, 75, 100, 110, 125, 150,
+                                        175, 200, 250, 300, 400, 500};
+  static constexpr int kDefaultZoomIdx = 4;  // 100%
+  static constexpr int kZoomLadderLen =
+      static_cast<int>(sizeof(kZoomLadder) / sizeof(kZoomLadder[0]));
+
+  int ZoomPercent() const { return kZoomLadder[zoom_idx_]; }
+
+  // Map the current zoom level to a font pixel size. The "100% baseline" is
+  // either the constructor default or, if the user picks a font via the font
+  // dialog, the size they picked — Ctrl+± then scales relative to that.
+  double ZoomedFontSize() const {
+    // Clamp to >=1 pixel so freetype doesn't get a degenerate cell size.
+    double sz = zoom_base_font_size_ * static_cast<double>(ZoomPercent()) / 100.0;
+    return sz < 1.0 ? 1.0 : sz;
+  }
+
+  // Re-rasterize at the current zoom level by handing a new font size to
+  // plaindoc::reset. Invalidates the cached layout metrics so the next paint
+  // sees fresh line height / content width, and asks OnPaint to bring the
+  // caret back into view (the byte position is preserved but the pixel
+  // coordinates change — caret can land off-screen on heavy zoom-in).
+  void ApplyZoom() {
+    doc_.reset(std::nullopt, std::nullopt, ZoomedFontSize());
+    content_width_ = 0;
+    line_height_px_ = 0;
+    // After zoom-out, the cached horizontal scroll may now point past the
+    // shorter content width. Pull it back to zero; OnPaint will scroll
+    // forward to the caret if needed.
+    scroll_x_ = 0;
+    pending_ensure_caret_visible_ = true;
+    UpdateStatusBar();
+    UpdateScrollBars();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+
+  void ZoomIn() {
+    if (zoom_idx_ + 1 < kZoomLadderLen) {
+      ++zoom_idx_;
+      ApplyZoom();
+    }
+  }
+
+  void ZoomOut() {
+    if (zoom_idx_ > 0) {
+      --zoom_idx_;
+      ApplyZoom();
+    }
+  }
+
+  void ZoomReset() {
+    if (zoom_idx_ != kDefaultZoomIdx) {
+      zoom_idx_ = kDefaultZoomIdx;
+      ApplyZoom();
+    }
+  }
+
+  // Ctrl+MouseWheel: step the zoom ladder by one notch per WHEEL_DELTA.
+  // Accumulates sub-notch deltas so precision-touchpad scrolls eventually
+  // trigger a zoom step. Returns true iff the event was consumed (caller
+  // should skip scrolling).
+  bool HandleZoomWheel(int delta) {
+    if (delta == 0) return false;
+    zoom_wheel_accum_ += delta;
+    int notches = zoom_wheel_accum_ / WHEEL_DELTA;
+    zoom_wheel_accum_ -= notches * WHEEL_DELTA;
+    if (notches == 0) return true;  // residual sub-notch wheel; consume.
+    const int old_idx = zoom_idx_;
+    const int steps = notches > 0 ? notches : -notches;
+    for (int i = 0; i < steps; ++i) {
+      if (notches > 0) {
+        if (zoom_idx_ + 1 >= kZoomLadderLen) break;
+        ++zoom_idx_;
+      } else {
+        if (zoom_idx_ == 0) break;
+        --zoom_idx_;
+      }
+    }
+    if (zoom_idx_ != old_idx) ApplyZoom();
+    return true;
   }
 
   // -------- Drag and drop --------
@@ -1569,6 +1715,19 @@ class Sedit : public swg::host {
   // widest line currently in view.
   int content_width_ = 0;
   bool drag_active_ = false;
+  int zoom_idx_ = 4;  // 100% — index into kZoomLadder.
+  // The "100%" font size in pixels. Initialized from the constructor's
+  // fontsize and overwritten whenever the user picks a new font via the
+  // Format > Font... dialog, so zoom always scales relative to the size
+  // the user explicitly chose.
+  double zoom_base_font_size_ = default_font_size;
+  // Accumulator for Ctrl+MouseWheel deltas so precision touchpads (which
+  // emit sub-WHEEL_DELTA increments) still zoom over time.
+  int zoom_wheel_accum_ = 0;
+  // Set by ApplyZoom (and font picker): on the next OnPaint, after layout
+  // has produced fresh line_height_px_ / caret anchors, scroll so the caret
+  // is back in view. Cleared by OnPaint after it runs.
+  bool pending_ensure_caret_visible_ = false;
   std::wstring file_path_;
   bool last_title_dirty_ = false;
   HWND status_hwnd_ = nullptr;

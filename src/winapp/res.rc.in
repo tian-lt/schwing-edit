@@ -36,6 +36,15 @@ BEGIN
     BEGIN
         MENUITEM "&Font...",               IDM_FORMAT_FONT
     END
+    POPUP "&View"
+    BEGIN
+        POPUP "&Zoom"
+        BEGIN
+            MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOM_IN
+            MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOM_OUT
+            MENUITEM "&Restore Default Zoom\tCtrl+0", IDM_VIEW_ZOOM_RESET
+        END
+    END
     POPUP "&Help"
     BEGIN
         MENUITEM "&About Schwing Edit",    IDM_HELP_ABOUT

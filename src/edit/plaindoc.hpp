@@ -201,7 +201,8 @@ class plaindoc {
       : ltable_(eol), host_(host), fontpath_(std::move(fontpath)), fontsize_(fontsize) {}
   ~plaindoc();
 
-  void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol);
+  void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol,
+             std::optional<double> new_fontsize = std::nullopt);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
   std::string get(size_t pos, size_t length) const { return ptable_.get(pos, length); }
@@ -222,6 +223,8 @@ class plaindoc {
   const glyphatlas& atlas() const { return *atlas_; }
   glyphatlas& atlas() { return *atlas_; }
   const fontengine& font() const { return *fontengine_; }
+  const std::string& fontpath() const { return fontpath_; }
+  double fontsize() const { return fontsize_; }
 
  private:
   void ensure_render_resources();

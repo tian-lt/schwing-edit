@@ -118,6 +118,61 @@ TEST_F(host_doc_ops, clear_dirty_clears_flag) {
   EXPECT_FALSE(host_->is_dirty());
 }
 
+// Font size / zoom ---------------------------------------------------------
+
+TEST_F(host_doc_ops, fontsize_default_is_constructor_value) {
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 12.0);
+}
+
+TEST_F(host_doc_ops, reset_with_new_fontsize_updates_metric) {
+  host_->document()->reset(std::nullopt, std::nullopt, 24.0);
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 24.0);
+}
+
+TEST_F(host_doc_ops, reset_with_nullopt_fontsize_is_a_noop) {
+  host_->document()->reset(std::nullopt, std::nullopt, std::nullopt);
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 12.0);
+}
+
+TEST_F(host_doc_ops, reset_with_zero_fontsize_is_rejected) {
+  // Defensive: a zero/negative font size would crash freetype later.
+  host_->document()->reset(std::nullopt, std::nullopt, 0.0);
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 12.0);
+  host_->document()->reset(std::nullopt, std::nullopt, -5.0);
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 12.0);
+}
+
+TEST_F(host_doc_ops, reset_with_same_fontsize_is_idempotent) {
+  host_->document()->insert(0, "Hello");
+  host_->document()->reset(std::nullopt, std::nullopt, 12.0);
+  EXPECT_DOUBLE_EQ(host_->document()->fontsize(), 12.0);
+  // Document content survives a no-op reset.
+  EXPECT_EQ(host_->all_text(), "Hello");
+}
+
+TEST_F(host_doc_ops, larger_fontsize_produces_taller_lines) {
+  host_->document()->insert(0, "Hi");
+  // Force the rendering resources to materialise at the default size.
+  auto small = host_->document()->render(800, 600, 0, 0);
+  ASSERT_GT(small.line_height, 0);
+  host_->document()->reset(std::nullopt, std::nullopt, 24.0);
+  auto big = host_->document()->render(800, 600, 0, 0);
+  EXPECT_GT(big.line_height, small.line_height);
+}
+
+TEST_F(host_doc_ops, smaller_fontsize_produces_shorter_lines) {
+  host_->document()->insert(0, "Hi");
+  auto big = host_->document()->render(800, 600, 0, 0);
+  ASSERT_GT(big.line_height, 0);
+  host_->document()->reset(std::nullopt, std::nullopt, 6.0);
+  auto small = host_->document()->render(800, 600, 0, 0);
+  EXPECT_LT(small.line_height, big.line_height);
+}
+
+TEST_F(host_doc_ops, fontpath_getter_round_trips) {
+  EXPECT_EQ(host_->document()->fontpath(), swg::ut::arial_path());
+}
+
 TEST_F(host_doc_ops, load_text_clears_dirty) {
   host_->insert_char("a");
   EXPECT_TRUE(host_->is_dirty());

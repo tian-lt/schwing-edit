@@ -8,10 +8,20 @@ namespace swg {
 
 plaindoc::~plaindoc() = default;
 
-void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol) {
+void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol,
+                     std::optional<double> new_fontsize) {
+  bool font_changed = false;
   if (new_fontpath.has_value() && new_fontpath != fontpath_) {
     fontpath_ = *new_fontpath;
-    // Drop GPU-side resources so they get re-created at the next render.
+    font_changed = true;
+  }
+  if (new_fontsize.has_value() && *new_fontsize > 0.0 && *new_fontsize != fontsize_) {
+    fontsize_ = *new_fontsize;
+    font_changed = true;
+  }
+  if (font_changed) {
+    // Drop the lazily-built rendering resources so the next render rebuilds
+    // them at the new font path / size.
     fontengine_.reset();
     atlas_.reset();
   }

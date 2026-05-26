@@ -5,6 +5,7 @@
     "freetype",
     "harfbuzz",
     "gtest",
+    "mio",
     {
       "name": "wil",
       "platform": "windows"

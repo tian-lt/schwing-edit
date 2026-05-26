@@ -1,4 +1,5 @@
 // std
+#include <cstring>
 #include <optional>
 #include <string>
 #include <variant>
@@ -325,5 +326,82 @@ INSTANTIATE_TEST_CASE_P(
                   .get_pos = 4,
                   .get_length = 1,
                   .test_ops = {insert_op{.pos = 3, .data = "XY"}}}));
+
+// -- detach_initbuf tests --
+
+TEST(piecetable_detach, no_op_on_empty_table) {
+  piecetable t;
+  EXPECT_FALSE(t.references_initbuf());
+  t.detach_initbuf();
+  EXPECT_EQ(t.length(), 0u);
+  EXPECT_FALSE(t.references_initbuf());
+}
+
+TEST(piecetable_detach, no_op_when_all_edits_replaced_original) {
+  std::string original = "hello";
+  piecetable t{original};
+  EXPECT_TRUE(t.references_initbuf());
+  t.erase(0, 5);  // strips every original byte
+  EXPECT_FALSE(t.references_initbuf());
+  t.insert(0, "added");
+  EXPECT_FALSE(t.references_initbuf());
+  // Mutating the source after the strip should not affect the table since no
+  // piece references it any more.
+  std::string snapshot = t.get(0, t.length());
+  std::memset(original.data(), 'X', original.size());
+  EXPECT_EQ(t.get(0, t.length()), snapshot);
+  t.detach_initbuf();  // still a no-op
+  EXPECT_EQ(t.get(0, t.length()), snapshot);
+}
+
+TEST(piecetable_detach, copies_original_into_addbuf_and_clears_reference) {
+  std::string original = "hello world";
+  piecetable t{original};
+  ASSERT_TRUE(t.references_initbuf());
+  ASSERT_EQ(t.length(), 11u);
+
+  t.detach_initbuf();
+
+  EXPECT_FALSE(t.references_initbuf());
+  EXPECT_EQ(t.length(), 11u);
+  EXPECT_EQ(t.get(0, 11), "hello world");
+  EXPECT_TRUE(t.initbuf().empty());
+
+  // The crucial safety property: mutating / destroying the original buffer
+  // after detach must not corrupt the document.
+  std::memset(original.data(), 0, original.size());
+  original.clear();
+  original.shrink_to_fit();
+  EXPECT_EQ(t.get(0, 11), "hello world");
+}
+
+TEST(piecetable_detach, preserves_content_with_mixed_pieces) {
+  std::string original = "ABCDEF";
+  piecetable t{original};
+  t.insert(3, "xyz");     // mid-insert splits original
+  t.erase(1, 1);          // removes 'B' from the first original piece
+  ASSERT_EQ(t.get(0, t.length()), "ACxyzDEF");
+
+  t.detach_initbuf();
+
+  EXPECT_FALSE(t.references_initbuf());
+  EXPECT_EQ(t.get(0, t.length()), "ACxyzDEF");
+
+  // Subsequent edits still work and content stays correct after the source is gone.
+  std::memset(original.data(), 0, original.size());
+  t.insert(t.length(), "!");
+  EXPECT_EQ(t.get(0, t.length()), "ACxyzDEF!");
+}
+
+TEST(piecetable_detach, length_is_unchanged) {
+  piecetable t{"abcdefghij"};
+  t.insert(5, "X");
+  t.erase(0, 2);
+  auto len_before = t.length();
+  auto content_before = t.get(0, t.length());
+  t.detach_initbuf();
+  EXPECT_EQ(t.length(), len_before);
+  EXPECT_EQ(t.get(0, t.length()), content_before);
+}
 
 }  // namespace swg::ut::piecetable_ut

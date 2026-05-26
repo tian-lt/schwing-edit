@@ -126,9 +126,14 @@ ctest --test-dir b\vs-dbg -C Debug             # run all tests
 
 All third-party dependencies are managed by vcpkg via `src/vcpkg.json`:
 
-- `freetype` — font rasterization.
+- `freetype` — font rasterization (grayscale + LCD subpixel).
 - `harfbuzz` — complex-script text shaping.
 - `glad` — OpenGL function loader (core 3.3 used).
+- `mio` — cross-platform, header-only memory mapping. Used by the Win32
+  host to mmap files so large documents load without a per-byte copy
+  into owned storage. The mmap-backed `string_view` is plumbed straight
+  into `piecetable::initbuf_`; the host keeps the mapping alive for the
+  document's lifetime and detaches it before saving the same path.
 - `gtest` — unit tests.
 - `wil` (Windows-only) — Win32 RAII wrappers (`wil::unique_hwnd`,
   `wil::unique_hdc_window`, `wil::GetDC`, `wil::BeginPaint`, …) and error
@@ -151,20 +156,30 @@ src/
 ├── vcpkg.json              # manifest deps
 ├── .clang-format           # Google, 100 cols
 ├── edit/                   # schwing::edit (PUBLIC include dir)
-│   ├── piecetable.{hpp,cpp}  # piece-table text buffer
-│   ├── linetable.{hpp,cpp}   # line index over a piecetable, EOL detection
-│   ├── plaindoc.{hpp,cpp}    # document + host interface
+│   ├── piecetable.{hpp,cpp}  # piece-table text buffer (initbuf_ may alias external memory)
+│   ├── linetable.{hpp,cpp}   # line index over a piecetable, EOL detection; caches eol_bytes per line
+│   ├── plaindoc.{hpp,cpp}    # document + host interface (host = platform customization point)
 │   ├── fontengine.{hpp,cpp}  # FreeType face + HarfBuzz font wrapper
-│   └── resource.{hpp,cpp}    # FT_Library lifetime, deleters, error helpers
-├── winapp/                 # schwing::app (WIN32 exe)
+│   ├── glyphatlas.{hpp,cpp}  # shelf-packed CPU glyph atlas (grayscale or LCD subpixel)
+│   ├── textshaper.{hpp,cpp}  # HarfBuzz buffer wrapper
+│   ├── textlayout.{hpp,cpp}  # viewport layout: line slicing, glyph placement, caret anchors
+│   └── resource.{hpp,cpp}    # FT_Library lifetime, deleters, error helpers, LCD filter
+├── winapp/                 # schwing::app (WIN32 exe) — gated by `if (MSVC)`
 │   ├── win.hpp               # canonical Windows.h include (WIN32_LEAN_AND_MEAN, NOMINMAX)
-│   ├── winmain.cpp           # wWinMain, MainWindow (mica, DPI)
-│   ├── sedit.cpp             # Sedit child window: WGL bootstrap, host impl, input
+│   ├── winmain.cpp           # wWinMain, MainWindow (mica, DPI, theme, WM_DPICHANGED)
+│   ├── sedit.cpp             # Sedit child window: WGL bootstrap, host impl, input, mmap I/O
+│   ├── glcaret.{hpp,cpp}     # OpenGL-rendered caret (own borderless child window)
+│   ├── theme.{hpp,cpp}       # System dark/light palette + immersive dark-mode opt-in
 │   ├── res.{h,rc.in}         # icon + VERSIONINFO templated from CMake
 │   └── app_icon.ico
-└── ut/                     # GoogleTest target `ut`
+└── ut/                     # GoogleTest target `ut` (defines SWGUT)
     ├── piecetable_tests.cpp
-    └── linetable_tests.cpp
+    ├── linetable_tests.cpp, linetable_api_tests.cpp, linetable_perf_tests.cpp
+    ├── fontengine_tests.cpp, glyphatlas_tests.cpp
+    ├── textshaper_tests.cpp, textlayout_tests.cpp
+    ├── host_doc_ops_tests.cpp, host_motion_tests.cpp, host_selection_tests.cpp
+    ├── host_undo_tests.cpp, host_goto_tests.cpp, host_find_tests.cpp
+    └── font_env.{hpp,cpp}    # locate the platform font path (Windows: C:\Windows\Fonts\Arial.ttf)
 ```
 
 ### Editor core architecture (`src/edit/`)
@@ -182,11 +197,31 @@ src/
   `true` when more than one terminator kind is observed (mixed EOL).
   `line_at_pos` is a `ranges::upper_bound` over `beg`.
 - **`swg::plaindoc` + `swg::host`** — `plaindoc` owns the `piecetable`,
-  `linetable`, font path/size, EOL mode, and a `host*`. `host` is an
-  abstract interface implemented by the UI; the editor calls back into
-  `host::on_invalidate(rect)`. `host` also exposes high-level input ops
-  (`insert_char`, `erase_char`, `delete_char`, `linefeed`) that operate on
-  an internal `inspos_` and respect the document's EOL mode.
+  `linetable`, font path/size, EOL mode, lazily-built rendering
+  resources (`fontengine` / `glyphatlas` / `textshaper`), and a `host*`.
+  `host` is the abstract platform customization point implemented by the
+  UI; the editor calls back into `host::on_invalidate(rect)` (full or
+  partial invalidation request) and `host::on_doc_changed(damage)`
+  (post-edit notification carrying `{pos, erased_len, inserted_len}` so
+  the platform can compute the actual screen-space dirty rect). `host`
+  also exposes high-level input ops (`insert_char`, `erase_char`,
+  `delete_char`, `linefeed`, `paste`, `undo`, `redo`), selection ops,
+  search/replace, `goto_line`, and document I/O hooks
+  (`load_text(utf8_copy, eol)` for owned bytes, `load_view(utf8_view,
+  eol)` for **non-owning** bytes — caller MUST keep storage alive until
+  the next `load_text`/`load_view`/`materialize`/destruction).
+- **`swg::glyphatlas`** — single-channel **or** RGB shelf-packed CPU
+  atlas. The platform host renders glyphs via the public `bitmap()` /
+  `bytes_per_pixel()` / dirty-row API; the atlas itself never touches a
+  GPU. LCD mode (3 bytes/pixel, FT_LOAD_TARGET_LCD + FT_LCD_FILTER_DEFAULT)
+  is selected at construction; falls back to grayscale if FreeType
+  rejects the LCD filter.
+- **`swg::textlayout::layout_viewport`** — pure function: given the
+  piecetable, linetable, fontengine, shaper, atlas, and a `layout_params`
+  (viewport size, scroll, padding) it returns a `layout_result` with
+  placed glyphs and caret anchors. Vertical line-slicing and horizontal
+  glyph clipping happen inside this function so the platform never
+  shapes/places glyphs outside the visible area.
 - **`swg::fontengine`** — wraps one `(fontpath, fontsize)` pair as a
   FreeType face + HarfBuzz font. Uses `swg::unique_ft_face` /
   `swg::unique_hb_font` with custom deleters defined in `swg::details`.
@@ -207,16 +242,29 @@ src/
   per-monitor V2 DPI awareness, a 30 dip title strip, and one child window
   of class `SEditWindowClass` filling the rest.
 - `Sedit` (`sedit.cpp`) is the editor child window. It:
-  - Implements `swg::host::on_invalidate` by calling `InvalidateRect`.
-  - Bootstraps a modern WGL context: dummy `CS_OWNDC` window → legacy
-    context → load `wglGetExtensionsStringARB`,
-    `wglChoosePixelFormatARB`, `wglCreateContextAttribsARB` → request an
-    OpenGL 3.3 **core** context → `gladLoadGL()`. Falls back gracefully if
-    extensions are missing.
+  - Implements `swg::host::on_invalidate` by calling `InvalidateRect`,
+    and `on_doc_changed(damage)` by invalidating only the affected lines
+    from the changed byte position down to the bottom of the viewport.
+  - Owns the OpenGL caret (`swg::winapp::GlCaret`) — a borderless child
+    window that paints the caret bar via OpenGL. The legacy Win32
+    `CreateCaret`/`SetCaretPos` are *not* used.
+  - Software-composites the layout's glyphs onto a 32-bit ARGB DIB
+    section, then `BitBlt`s the dirty subrect (clipped by `ps.rcPaint`)
+    to the window DC. Selection rectangles draw under the glyphs; the
+    atlas alpha values blend the foreground color per pixel/subpixel.
+    LCD subpixel rendering reads 3 atlas bytes per visual pixel and
+    blends per channel.
+  - Memory-maps the open file with `mio::mmap_source`. For UTF-8 (or
+    bom-less, validated UTF-8) bytes, the mmap'd `string_view` is
+    handed straight to `host::load_view(...)` so the editor reads the
+    original bytes through the piecetable's `initbuf_` without any copy.
+    For UTF-16 (or invalid UTF-8) the host falls back to `load_text(...)`
+    after a one-time owned decode. Before any save, the host calls
+    `plaindoc::materialize()` to copy the initbuf into the addbuf and
+    release the mmap so the file is no longer locked.
   - Assembles UTF-16 surrogate pairs from `WM_CHAR` and converts to UTF-8
     via `WideCharToMultiByte(CP_UTF8, ...)` before handing bytes to the
     editor. The editor's internal encoding is **UTF-8**.
-  - Owns the caret (`CreateCaret` / `SetCaretPos` / `ShowCaret`).
 - Resources (`res.rc.in`) are configured by CMake; `VERSION_MAJOR` /
   `_MINOR` / `_PATCH` come from the top-level `project(... VERSION ...)`.
 

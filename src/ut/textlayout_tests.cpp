@@ -23,14 +23,16 @@ void skip_if_no_font() {
 }
 
 struct layout_fixture {
+  std::string text;
   piecetable ptable;
   linetable ltable;
   fontengine font;
   textshaper shaper;
   glyphatlas atlas;
 
-  explicit layout_fixture(std::string text, eol mode = eol::lf, double px = 16.0)
-      : ptable(std::move(text)), ltable(mode), font(arial_path(), px), atlas(font.face()) {
+  explicit layout_fixture(std::string text_, eol mode = eol::lf, double px = 16.0)
+      : text(std::move(text_)), ptable(text), ltable(mode), font(arial_path(), px),
+        atlas(font.face(), /*force_grayscale=*/true) {
     ltable.rebuild(ptable, mode);
   }
 };

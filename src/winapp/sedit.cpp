@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <vector>
 // windows
@@ -20,6 +21,8 @@
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
+// mio
+#include <mio/mmap.hpp>
 // app
 #include "res.h"
 #include "glcaret.hpp"
@@ -52,39 +55,85 @@ HWND g_find_owner = nullptr;  // child Sedit hwnd that should receive find event
 // over whatever was previously drawn (e.g., selection highlight rectangles).
 // Pure CPU so this runs in any environment, including Hyper-V VMs without a
 // GPU.
+// Software-composite all shaped glyphs from the atlas onto a 32-bit ARGB
+// back-buffer using the standard "lerp(bg, fg, alpha/255)" formula. In LCD
+// subpixel mode the atlas carries 3 bytes per pixel (one alpha per subpixel
+// R, G, B) and we blend each channel against the matching subpixel of the
+// framebuffer separately — this is the standard ClearType-style edge
+// rendering that makes anti-aliased text look noticeably sharper on LCDs.
+// In grayscale mode the atlas carries one alpha per pixel and the formula
+// reduces to the uniform-alpha blend.
+//
+// Writes the destination AFTER (it does not erase first), so it can be called
+// over whatever was previously drawn (e.g., selection highlight rectangles).
+// Pure CPU so this runs in any environment, including Hyper-V VMs without a
+// GPU.
 void CompositeAllGlyphs(uint32_t* dst, int dst_w, int dst_h, const uint8_t* atlas,
-                        int atlas_w, int atlas_h, const swg::layout_result& layout,
-                        uint32_t fg) {
+                        int atlas_w, int atlas_h, int atlas_bpp,
+                        const swg::layout_result& layout, uint32_t fg, int clip_l,
+                        int clip_t, int clip_r, int clip_b) {
   const uint32_t fg_r = (fg >> 16) & 0xFF;
   const uint32_t fg_g = (fg >> 8) & 0xFF;
   const uint32_t fg_b = fg & 0xFF;
+  clip_l = std::max(0, clip_l);
+  clip_t = std::max(0, clip_t);
+  clip_r = std::min(dst_w, clip_r);
+  clip_b = std::min(dst_h, clip_b);
+  if (clip_l >= clip_r || clip_t >= clip_b) return;
+  const size_t row_stride = static_cast<size_t>(atlas_w) * atlas_bpp;
   for (const auto& q : layout.glyphs) {
     const int gw = static_cast<int>(q.w);
     const int gh = static_cast<int>(q.h);
     if (gw <= 0 || gh <= 0) continue;
     const int gx = static_cast<int>(q.x);
     const int gy = static_cast<int>(q.y);
+    if (gx + gw <= clip_l || gx >= clip_r) continue;
+    if (gy + gh <= clip_t || gy >= clip_b) continue;
     const int au0 = static_cast<int>(q.u0 * atlas_w + 0.5f);
     const int av0 = static_cast<int>(q.v0 * atlas_h + 0.5f);
-    for (int dy = 0; dy < gh; ++dy) {
+    const int dy0 = std::max(0, clip_t - gy);
+    const int dy1 = std::min(gh, clip_b - gy);
+    const int dx0 = std::max(0, clip_l - gx);
+    const int dx1 = std::min(gw, clip_r - gx);
+    for (int dy = dy0; dy < dy1; ++dy) {
       const int yy = gy + dy;
-      if (yy < 0 || yy >= dst_h) continue;
-      const uint8_t* sr = atlas + (av0 + dy) * atlas_w + au0;
+      const uint8_t* sr = atlas + (av0 + dy) * row_stride +
+                          static_cast<size_t>(au0) * atlas_bpp;
       uint32_t* dr = dst + static_cast<size_t>(yy) * dst_w;
-      for (int dx = 0; dx < gw; ++dx) {
-        const int xx = gx + dx;
-        if (xx < 0 || xx >= dst_w) continue;
-        const uint8_t a = sr[dx];
-        if (a == 0) continue;
-        const uint32_t ia = 255u - a;
-        const uint32_t bgp = dr[xx];
-        const uint32_t bg_r = (bgp >> 16) & 0xFF;
-        const uint32_t bg_g = (bgp >> 8) & 0xFF;
-        const uint32_t bg_b = bgp & 0xFF;
-        const uint32_t r = (bg_r * ia + fg_r * a) / 255u;
-        const uint32_t gn = (bg_g * ia + fg_g * a) / 255u;
-        const uint32_t b = (bg_b * ia + fg_b * a) / 255u;
-        dr[xx] = (r << 16) | (gn << 8) | b;
+      if (atlas_bpp == 1) {
+        for (int dx = dx0; dx < dx1; ++dx) {
+          const int xx = gx + dx;
+          const uint8_t a = sr[dx];
+          if (a == 0) continue;
+          const uint32_t ia = 255u - a;
+          const uint32_t bgp = dr[xx];
+          const uint32_t bg_r = (bgp >> 16) & 0xFF;
+          const uint32_t bg_g = (bgp >> 8) & 0xFF;
+          const uint32_t bg_b = bgp & 0xFF;
+          const uint32_t r = (bg_r * ia + fg_r * a) / 255u;
+          const uint32_t gn = (bg_g * ia + fg_g * a) / 255u;
+          const uint32_t b = (bg_b * ia + fg_b * a) / 255u;
+          dr[xx] = (r << 16) | (gn << 8) | b;
+        }
+      } else {
+        // LCD subpixel: blend each of R/G/B channels with its own alpha. The
+        // atlas stores subpixel order R, G, B; framebuffer is BGRA so the
+        // shifts (>>16 = R, >>8 = G, &0xFF = B) match.
+        for (int dx = dx0; dx < dx1; ++dx) {
+          const int xx = gx + dx;
+          const uint8_t ar = sr[dx * 3 + 0];
+          const uint8_t ag = sr[dx * 3 + 1];
+          const uint8_t ab = sr[dx * 3 + 2];
+          if ((ar | ag | ab) == 0) continue;
+          const uint32_t bgp = dr[xx];
+          const uint32_t bg_r = (bgp >> 16) & 0xFF;
+          const uint32_t bg_g = (bgp >> 8) & 0xFF;
+          const uint32_t bg_b = bgp & 0xFF;
+          const uint32_t r = (bg_r * (255u - ar) + fg_r * ar) / 255u;
+          const uint32_t gn = (bg_g * (255u - ag) + fg_g * ag) / 255u;
+          const uint32_t b = (bg_b * (255u - ab) + fg_b * ab) / 255u;
+          dr[xx] = (r << 16) | (gn << 8) | b;
+        }
       }
     }
   }
@@ -109,7 +158,8 @@ void FillRect32(uint32_t* dst, int dst_w, int dst_h, int x0, int y0, int x1, int
 // extends past a line's last text byte, the rectangle is extended a small
 // amount to indicate the newline is selected too (Notepad behavior).
 void RenderSelection(uint32_t* dst, int dst_w, int dst_h, const swg::layout_result& layout,
-                     size_t sel_b, size_t sel_e, uint32_t color) {
+                     size_t sel_b, size_t sel_e, uint32_t color, int clip_l, int clip_t,
+                     int clip_r, int clip_b) {
   if (sel_b >= sel_e || layout.carets.empty()) return;
   const int ascent = layout.ascent;
   const int line_h = layout.line_height;
@@ -162,8 +212,16 @@ void RenderSelection(uint32_t* dst, int dst_w, int dst_h, const swg::layout_resu
     }
     const int y0 = static_cast<int>(by) - ascent;
     const int y1 = static_cast<int>(by) + (line_h - ascent);
-    FillRect32(dst, dst_w, dst_h, static_cast<int>(x_lo), y0, static_cast<int>(x_hi), y1,
-               color);
+    // Clip per-line rect against the paint region.
+    if (y1 > clip_t && y0 < clip_b) {
+      int rx0 = std::max(clip_l, static_cast<int>(x_lo));
+      int rx1 = std::min(clip_r, static_cast<int>(x_hi));
+      int ry0 = std::max(clip_t, y0);
+      int ry1 = std::min(clip_b, y1);
+      if (rx0 < rx1 && ry0 < ry1) {
+        FillRect32(dst, dst_w, dst_h, rx0, ry0, rx1, ry1, color);
+      }
+    }
     i = j;
   }
 }
@@ -199,6 +257,51 @@ std::optional<std::vector<uint8_t>> ReadFileBytes(const std::wstring& path) {
   std::vector<uint8_t> buf((std::istreambuf_iterator<char>(f)),
                            std::istreambuf_iterator<char>());
   return buf;
+}
+
+// Validate that [data, data+size) is well-formed UTF-8. Rejects overlong
+// encodings, surrogate code points, and code points beyond U+10FFFF so that
+// every codepoint the editor moves over (`move_caret`, `erase_char`,
+// `delete_char`) lands on a defined byte. Returns true iff the buffer can
+// safely be handed to `host::load_view` (no copy, no transformation).
+bool IsValidUtf8(const char* data, size_t size) {
+  size_t i = 0;
+  while (i < size) {
+    unsigned char b0 = static_cast<unsigned char>(data[i]);
+    if (b0 < 0x80) {
+      ++i;
+      continue;
+    }
+    size_t need = 0;
+    unsigned int min_cp = 0;
+    unsigned int cp = 0;
+    if ((b0 & 0xE0) == 0xC0) {
+      need = 1;
+      min_cp = 0x80;
+      cp = b0 & 0x1F;
+    } else if ((b0 & 0xF0) == 0xE0) {
+      need = 2;
+      min_cp = 0x800;
+      cp = b0 & 0x0F;
+    } else if ((b0 & 0xF8) == 0xF0) {
+      need = 3;
+      min_cp = 0x10000;
+      cp = b0 & 0x07;
+    } else {
+      return false;
+    }
+    if (i + need >= size) return false;
+    for (size_t k = 1; k <= need; ++k) {
+      unsigned char bk = static_cast<unsigned char>(data[i + k]);
+      if ((bk & 0xC0) != 0x80) return false;
+      cp = (cp << 6) | (bk & 0x3F);
+    }
+    if (cp < min_cp) return false;             // overlong
+    if (cp >= 0xD800 && cp <= 0xDFFF) return false;  // surrogate
+    if (cp > 0x10FFFF) return false;           // out of range
+    i += need + 1;
+  }
+  return true;
 }
 
 bool WriteFileBytes(const std::wstring& path, std::string_view bytes) {
@@ -336,6 +439,37 @@ class Sedit : public swg::host {
     }
   }
 
+  // Targeted invalidation: only the line containing `damage.pos` and every
+  // line below it can be visually affected by an edit (an insert may add
+  // lines, an erase may remove lines, both shift subsequent rows vertically).
+  // Lines strictly above `damage.pos`'s line are unchanged so we can leave
+  // their pixels alone. This is the single biggest "avoid overdraw" win
+  // for keystroke-driven typing — a one-line edit no longer requires the
+  // whole viewport to be repainted.
+  void on_doc_changed(const swg::doc_damage& damage) override {
+    if (viewport.w <= 0 || viewport.h <= 0) {
+      // Window hasn't been sized yet — fall back to the full-viewport request
+      // (which is what the base class default does too).
+      on_invalidate(viewport);
+      return;
+    }
+    const size_t line_index = doc_.lines().line_at_pos(damage.pos);
+    constexpr int kPaddingY = 2;  // mirrors plaindoc::render's params
+    const int line_h = line_height_px_ > 0 ? line_height_px_ : 1;
+    int top_y = kPaddingY - scroll_y_ + static_cast<int>(line_index) * line_h;
+    if (top_y < 0) top_y = 0;
+    if (top_y >= viewport.h) {
+      // The change is below the visible area — nothing to repaint, but the
+      // dirty bit may still need to be reflected in the title.
+      if (is_dirty() != last_title_dirty_) {
+        last_title_dirty_ = is_dirty();
+        UpdateTitle();
+      }
+      return;
+    }
+    on_invalidate(swg::rect{.x = 0, .y = top_y, .w = viewport.w, .h = viewport.h - top_y});
+  }
+
   void EnsureBackBuffer(int w, int h) {
     if (w <= 0 || h <= 0) return;
     if (backbuffer_ && bb_w_ == w && bb_h_ == h) return;
@@ -379,14 +513,33 @@ class Sedit : public swg::host {
     }
     EnsureBackBuffer(viewport.w, viewport.h);
 
+    // Clip the paint region to the back-buffer extents. ps.rcPaint is the
+    // union of every InvalidateRect call since the last BeginPaint; under
+    // targeted on_doc_changed() invalidation this is often just a few
+    // changed lines instead of the whole viewport.
+    int clip_l = std::max<LONG>(0, ps.rcPaint.left);
+    int clip_t = std::max<LONG>(0, ps.rcPaint.top);
+    int clip_r = std::min<LONG>(bb_w_, ps.rcPaint.right);
+    int clip_b = std::min<LONG>(bb_h_, ps.rcPaint.bottom);
+    if (clip_l >= clip_r || clip_t >= clip_b) {
+      EndPaint(hwnd_, &ps);
+      return 0;
+    }
+
     // Pull the theme palette once per paint. Cheap registry read; nothing in
     // the hot typing path depends on it.
     const auto palette = swg::winapp::theme::current_palette();
 
-    // Clear back-buffer to the editor background (theme-aware).
-    std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, palette.editor_bg);
+    // Clear the dirty subrect to the editor background (theme-aware).
+    for (int y = clip_t; y < clip_b; ++y) {
+      std::fill_n(bb_pixels_ + static_cast<size_t>(y) * bb_w_ + clip_l,
+                  clip_r - clip_l, palette.editor_bg);
+    }
 
-    // Compute the layout — pure CPU work in src/edit/.
+    // Compute the layout — pure CPU work in src/edit/. We always lay out the
+    // entire viewport (so the layout pipeline stays simple and so the caret
+    // anchors needed by PlaceCaret are populated), but the composite is
+    // clipped to ps.rcPaint below.
     auto layout =
         render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
     // Sync cached metrics from the freshly computed layout. line_height_px_
@@ -406,6 +559,14 @@ class Sedit : public swg::host {
       const int prev_scroll_y = scroll_y_;
       EnsureCaretVisible();
       if (scroll_y_ != prev_scroll_y) {
+        // The viewport scrolled — the whole client needs repainting, not
+        // just the original ps.rcPaint area.
+        clip_l = 0;
+        clip_t = 0;
+        clip_r = bb_w_;
+        clip_b = bb_h_;
+        // Re-clear with the new clip and re-layout for the new scroll_y_.
+        std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, palette.editor_bg);
         layout =
             render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
         if (layout.content_width > content_width_) {
@@ -419,6 +580,11 @@ class Sedit : public swg::host {
     // EnsureCaretVisible) means we never run two full layouts per keystroke
     // for the common case where the caret remains horizontally visible.
     if (AdjustScrollXForCaret(layout)) {
+      clip_l = 0;
+      clip_t = 0;
+      clip_r = bb_w_;
+      clip_b = bb_h_;
+      std::fill_n(bb_pixels_, static_cast<size_t>(bb_w_) * bb_h_, palette.editor_bg);
       layout =
           render({.x = 0, .y = 0, .w = viewport.w, .h = viewport.h}, scroll_y_, scroll_x_);
       if (layout.content_width > content_width_) {
@@ -431,20 +597,24 @@ class Sedit : public swg::host {
     // Draw selection highlight rectangles first, behind text.
     if (has_selection()) {
       const auto [sb, se] = selection_range();
-      RenderSelection(bb_pixels_, bb_w_, bb_h_, layout, sb, se, palette.selection_bg);
+      RenderSelection(bb_pixels_, bb_w_, bb_h_, layout, sb, se, palette.selection_bg,
+                      clip_l, clip_t, clip_r, clip_b);
     }
 
-    // Composite every shaped glyph using the document's CPU-side atlas.
+    // Composite every shaped glyph using the document's CPU-side atlas,
+    // clipped to the dirty subrect.
     const auto& atlas = doc_.atlas();
     CompositeAllGlyphs(bb_pixels_, bb_w_, bb_h_, atlas.bitmap().data(), atlas.width(),
-                       atlas.height(), layout, /*fg=*/palette.editor_fg);
+                       atlas.height(), atlas.bytes_per_pixel(), layout,
+                       /*fg=*/palette.editor_fg, clip_l, clip_t, clip_r, clip_b);
 
     // Move the OpenGL caret child window to its new position BEFORE BitBlt so
     // that WS_CLIPCHILDREN excludes the new rect from the BitBlt destination.
     // Without this ordering the old caret rect would keep stale pixels.
     PlaceCaret(layout);
 
-    BitBlt(hdc, 0, 0, bb_w_, bb_h_, mem_dc_, 0, 0, SRCCOPY);
+    BitBlt(hdc, clip_l, clip_t, clip_r - clip_l, clip_b - clip_t, mem_dc_, clip_l, clip_t,
+           SRCCOPY);
     EndPaint(hwnd_, &ps);
     return 0;
   }
@@ -914,7 +1084,61 @@ class Sedit : public swg::host {
  public:
   // Open `path` as the current document, replacing any existing content.
   // Called either via Ctrl+O or by the command-line argument plumbing.
+  //
+  // Fast path: try to memory-map the file and hand the mapped view straight
+  // to the editor via `host::load_view`. This skips the per-byte copy through
+  // the istreambuf iterator, the second copy when extracting bytes via the
+  // BOM stripper, the third UTF-8 normalization copy, and the fourth copy
+  // into the addbuf. For a 100 MB UTF-8 file this turns a multi-second load
+  // into milliseconds and reduces memory footprint to roughly the size of
+  // the line index. The mmap is kept alive in `file_mmap_` until the next
+  // file open / new / save (saves call `materialize()` first so the
+  // document keeps its bytes after we release the mapping).
+  //
+  // Fallback path: anything that can't be safely viewed in-place — files
+  // with a UTF-16 BOM, files whose bytes aren't well-formed UTF-8 — uses
+  // the existing copy-and-decode pipeline so the user still gets a sensible
+  // document (Replacement Characters where decoding failed).
   bool OpenFile(const std::wstring& path) {
+    ReleaseFileMmap();
+    // Try the mmap fast path first.
+    mio::mmap_source mmap;
+    std::error_code ec;
+    mmap.map(path, 0, mio::map_entire_file, ec);
+    if (!ec && mmap.is_open()) {
+      const char* data = mmap.data();
+      size_t size = mmap.size();
+      size_t bom_skip = 0;
+      bool is_utf16 = false;
+      if (size >= 3 && static_cast<unsigned char>(data[0]) == 0xEF &&
+          static_cast<unsigned char>(data[1]) == 0xBB &&
+          static_cast<unsigned char>(data[2]) == 0xBF) {
+        bom_skip = 3;  // UTF-8 BOM
+      } else if (size >= 2 &&
+                 ((static_cast<unsigned char>(data[0]) == 0xFF &&
+                   static_cast<unsigned char>(data[1]) == 0xFE) ||
+                  (static_cast<unsigned char>(data[0]) == 0xFE &&
+                   static_cast<unsigned char>(data[1]) == 0xFF))) {
+        is_utf16 = true;
+      }
+      if (!is_utf16 && IsValidUtf8(data + bom_skip, size - bom_skip)) {
+        std::string_view view(data + bom_skip, size - bom_skip);
+        swg::eol detected = DetectEol(view);
+        load_view(view, detected);
+        // The piecetable now aliases the mmap. Keep it alive.
+        file_mmap_ = std::move(mmap);
+        scroll_y_ = 0;
+        scroll_x_ = 0;
+        content_width_ = 0;
+        file_path_ = path;
+        clear_dirty();
+        UpdateTitle();
+        UpdateScrollBars();
+        return true;
+      }
+    }
+
+    // Fallback for UTF-16, ill-formed UTF-8, or mmap failure.
     auto bytes = ReadFileBytes(path);
     if (!bytes.has_value()) {
       MessageBoxW(hwnd_, L"Failed to open file.", L"Schwing Edit",
@@ -923,8 +1147,10 @@ class Sedit : public swg::host {
     }
     std::string utf8 = DecodeToUtf8(*bytes);
     swg::eol detected = DetectEol(utf8);
-    std::string normalized = NormalizeEol(utf8, detected);
-    load_text(normalized, detected);
+    // Don't normalize EOLs on load — preserves the file's original line
+    // terminators in mixed-EOL files (Notepad-like behaviour). The linetable
+    // handles mixed EOLs correctly via its `mixeol_` bit.
+    load_text(utf8, detected);
     scroll_y_ = 0;
     scroll_x_ = 0;
     content_width_ = 0;
@@ -933,6 +1159,16 @@ class Sedit : public swg::host {
     UpdateTitle();
     UpdateScrollBars();
     return true;
+  }
+
+  // Drop any active memory mapping, first ensuring no piece of the document
+  // references the mapped bytes. Safe to call at any time.
+  void ReleaseFileMmap() {
+    if (file_mmap_.has_value()) {
+      // Make sure no piece in the document still points at the mapped bytes.
+      materialize();
+      file_mmap_.reset();
+    }
   }
 
   // Prompt the user when there are unsaved changes. Returns true if the caller
@@ -960,6 +1196,7 @@ class Sedit : public swg::host {
  private:
   void DoNew() {
     if (!ConfirmDiscardChanges()) return;
+    ReleaseFileMmap();
     load_text({}, doc_.eol_mode());
     scroll_y_ = 0;
     scroll_x_ = 0;
@@ -1022,6 +1259,12 @@ class Sedit : public swg::host {
   }
 
   bool WriteCurrentTo(const std::wstring& path) {
+    // The file we're about to write may be the same one we currently have
+    // memory-mapped (e.g. plain Ctrl+S). On Windows, MapViewOfFile keeps a
+    // shared lock that prevents truncation, so any write through ofstream
+    // would fail or be silently ignored. Materialize the document so it no
+    // longer references mapped pages, then drop the mapping before writing.
+    ReleaseFileMmap();
     std::string utf8 = all_text();
     if (!WriteFileBytes(path, utf8)) {
       MessageBoxW(hwnd_, L"Failed to save file.", L"Schwing Edit",
@@ -1782,6 +2025,11 @@ class Sedit : public swg::host {
   // is back in view. Cleared by OnPaint after it runs.
   bool pending_ensure_caret_visible_ = false;
   std::wstring file_path_;
+  // When a file is loaded via mmap, the underlying mapping is kept alive
+  // here so `piecetable::initbuf_` may safely alias its bytes. Released
+  // either by the next file load, by `materialize()+drop` on save, or in
+  // the destructor.
+  std::optional<mio::mmap_source> file_mmap_;
   bool last_title_dirty_ = false;
   HWND status_hwnd_ = nullptr;
 

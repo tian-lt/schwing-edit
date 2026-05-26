@@ -91,7 +91,17 @@ TEST(glyphatlas_tests, bitmap_size_matches_atlas_dimensions) {
   fontengine fe{arial_path(), 16.0};
   glyphatlas atlas{fe.face()};
   const auto bmp = atlas.bitmap();
-  EXPECT_EQ(bmp.size(),
+  EXPECT_EQ(bmp.size(), static_cast<size_t>(glyphatlas::kAtlasSize) *
+                            glyphatlas::kAtlasSize * atlas.bytes_per_pixel());
+  EXPECT_TRUE(atlas.bytes_per_pixel() == 1 || atlas.bytes_per_pixel() == 3);
+}
+
+TEST(glyphatlas_tests, force_grayscale_is_one_byte_per_pixel) {
+  skip_if_no_font();
+  fontengine fe{arial_path(), 16.0};
+  glyphatlas atlas{fe.face(), /*force_grayscale=*/true};
+  EXPECT_EQ(atlas.bytes_per_pixel(), 1u);
+  EXPECT_EQ(atlas.bitmap().size(),
             static_cast<size_t>(glyphatlas::kAtlasSize) * glyphatlas::kAtlasSize);
 }
 

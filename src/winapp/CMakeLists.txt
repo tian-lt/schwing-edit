@@ -17,9 +17,11 @@ target_compile_definitions(app PRIVATE
   _UNICODE
 )
 find_package(wil CONFIG REQUIRED)
+find_package(mio CONFIG REQUIRED)
 target_link_libraries(app PRIVATE
   edit
   WIL::WIL
+  mio::mio
   Dwmapi
   Comdlg32
 )

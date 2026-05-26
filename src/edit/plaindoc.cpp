@@ -42,6 +42,17 @@ void plaindoc::erase(size_t pos, size_t length) {
   ltable_.erase(ptable_, pos, length);
 }
 
+void plaindoc::load_view(std::string_view utf8, eol mode) {
+  // Replace the table with one whose initbuf_ aliases `utf8`. Move-assign is
+  // safe and avoids an extra copy compared to rebuilding piece-by-piece.
+  ptable_ = piecetable{utf8};
+  mixeol_ = ltable_.rebuild(ptable_, mode);
+}
+
+void plaindoc::materialize() {
+  ptable_.detach_initbuf();
+}
+
 void plaindoc::ensure_render_resources() {
   if (!fontengine_) {
     fontengine_ = std::make_unique<swg::fontengine>(fontpath_, fontsize_);
@@ -68,10 +79,8 @@ layout_result plaindoc::render(int viewport_w, int viewport_h, int scroll_y, int
 }
 
 struct host::impl {
-  static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
-    // Invalidate the entire viewport. A more surgical line-range invalidation
-    // can replace this later without touching callers.
-    self->on_invalidate(self->viewport);
+  static void post_edit(host* self, const doc_damage& damage) {
+    self->on_doc_changed(damage);
   }
 };
 
@@ -126,6 +135,7 @@ void host::apply_edit(size_t pos, size_t erase_len, std::string_view inserted, b
   sel_anchor_.reset();
   op.caret_after = inspos_;
   dirty_ = true;
+  const doc_damage dmg{.pos = pos, .erased_len = erase_len, .inserted_len = inserted.size()};
   // Try to merge into the previous op when both are mergeable insertions and
   // the new op is immediately contiguous to the previous one.
   if (mergeable && can_merge_next_ && !undo_stack_.empty()) {
@@ -134,14 +144,14 @@ void host::apply_edit(size_t pos, size_t erase_len, std::string_view inserted, b
         last.pos + last.inserted.size() == op.pos) {
       last.inserted += op.inserted;
       last.caret_after = op.caret_after;
-      impl::post_edit(this, op.caret_before, inspos_);
+      impl::post_edit(this, dmg);
       return;
     }
   }
   redo_stack_.clear();
   undo_stack_.push_back(std::move(op));
   can_merge_next_ = mergeable;
-  impl::post_edit(this, undo_stack_.back().caret_before, inspos_);
+  impl::post_edit(this, dmg);
 }
 
 void host::delete_selection() {
@@ -272,10 +282,12 @@ void host::undo() {
   if (!op.erased.empty()) doc->insert(op.pos, op.erased);
   inspos_ = op.caret_before;
   sel_anchor_ = op.anchor_before;
+  const doc_damage dmg{
+      .pos = op.pos, .erased_len = op.inserted.size(), .inserted_len = op.erased.size()};
   redo_stack_.push_back(std::move(op));
   can_merge_next_ = false;
   dirty_ = true;
-  impl::post_edit(this, inspos_, inspos_);
+  impl::post_edit(this, dmg);
 }
 
 void host::redo() {
@@ -286,10 +298,12 @@ void host::redo() {
   if (!op.inserted.empty()) doc->insert(op.pos, op.inserted);
   inspos_ = op.caret_after;
   sel_anchor_.reset();
+  const doc_damage dmg{
+      .pos = op.pos, .erased_len = op.erased.size(), .inserted_len = op.inserted.size()};
   undo_stack_.push_back(std::move(op));
   can_merge_next_ = false;
   dirty_ = true;
-  impl::post_edit(this, inspos_, inspos_);
+  impl::post_edit(this, dmg);
 }
 
 namespace {
@@ -486,6 +500,23 @@ void host::load_text(std::string_view utf8, eol mode) {
   can_merge_next_ = false;
   dirty_ = false;
   on_invalidate(viewport);
+}
+
+void host::load_view(std::string_view utf8, eol mode) {
+  // Replace the document's piecetable with one whose original buffer aliases
+  // `utf8`. No copy is taken; the caller owns the lifetime of the bytes.
+  doc->load_view(utf8, mode);
+  inspos_ = 0;
+  sel_anchor_.reset();
+  undo_stack_.clear();
+  redo_stack_.clear();
+  can_merge_next_ = false;
+  dirty_ = false;
+  on_invalidate(viewport);
+}
+
+void host::materialize() {
+  doc->materialize();
 }
 
 std::string host::all_text() const {

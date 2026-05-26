@@ -26,6 +26,12 @@ using unique_hb_font = std::unique_ptr<hb_font_t, details::hb_font_deleter>;
 using unique_hb_buffer = std::unique_ptr<hb_buffer_t, details::hb_buffer_deleter>;
 
 FT_Library get_ft_library();
+// True iff the FreeType library was built with LCD filtering support. Set by
+// `initialize()` based on the result of `FT_Library_SetLcdFilter`. When false,
+// the glyph atlas must use grayscale rasterization (FT_LOAD_DEFAULT) — the
+// LCD code path would still work but `FT_LOAD_TARGET_LCD` would produce
+// unfiltered bitmaps that look colored-fringey on every screen.
+bool ft_lcd_filter_available();
 void initialize();
 void uninitialize();
 

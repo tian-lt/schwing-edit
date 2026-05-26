@@ -160,4 +160,30 @@ void piecetable::erase(size_t pos, size_t length) {
   }
 }
 
+bool piecetable::references_initbuf() const noexcept {
+  for (const auto& p : piecelist_) {
+    if (p.is_original && p.length > 0) return true;
+  }
+  return false;
+}
+
+void piecetable::detach_initbuf() {
+  if (!references_initbuf()) {
+    // Nothing depends on the external buffer; just drop the view.
+    initbuf_ = {};
+    return;
+  }
+  // Copy every original-referencing piece into the addbuf and rewrite it as
+  // an add-buffer piece. Use a single append per piece so we preserve byte
+  // ordering and don't disturb adjacent add-buffer pieces' offsets.
+  for (auto& p : piecelist_) {
+    if (!p.is_original || p.length == 0) continue;
+    size_t new_offset = addbuf_.size();
+    addbuf_.append(initbuf_.data() + p.offset, p.length);
+    p.offset = new_offset;
+    p.is_original = false;
+  }
+  initbuf_ = {};
+}
+
 }  // namespace swg

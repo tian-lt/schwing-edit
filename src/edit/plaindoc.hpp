@@ -24,6 +24,17 @@ struct docpos {
   int line, column;
 };
 
+// Description of a primitive document mutation, in document byte coordinates.
+// `pos` is the byte offset at which the change occurred; `erased_len` bytes
+// were removed at that position, then `inserted_len` bytes were inserted.
+// Either count may be zero. The host uses this to compute a screen-space
+// damage rectangle that's tighter than the full viewport for repaint.
+struct doc_damage {
+  size_t pos = 0;
+  size_t erased_len = 0;
+  size_t inserted_len = 0;
+};
+
 class plaindoc;
 
 class host {
@@ -33,6 +44,16 @@ class host {
  public:
   virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
+  // Called by the editor after every document mutation (`apply_edit`, `undo`,
+  // `redo`, `load_text`, `load_view`). The default body just requests a full
+  // viewport invalidate — platform hosts may override to invalidate only the
+  // affected screen rows. Implementations must remain re-entrant-safe: they
+  // run from inside `apply_edit`, so they cannot themselves mutate the
+  // document or the caret.
+  virtual void on_doc_changed(const doc_damage& damage) {
+    (void)damage;
+    on_invalidate(viewport);
+  }
 
   // Render the visible window. Returns the layout used so platform code can
   // position the system caret, hit-test, etc.
@@ -99,6 +120,19 @@ class host {
   // of the document and any active selection is cleared. The document's EOL
   // mode is updated to `mode` (so subsequent linefeeds use the same EOL).
   void load_text(std::string_view utf8, eol mode);
+  // Same as `load_text`, but the document holds the bytes by view: no copy
+  // is taken and the caller is responsible for keeping the underlying storage
+  // alive until the next document-replacing call. This is the fast path for
+  // memory-mapped files. Calling `load_text`, `load_view`, `clear`, or
+  // destroying the host all release the view. Before the host can safely
+  // free the source bytes (e.g. close the mmap) while keeping the document
+  // contents, call `materialize()` first.
+  void load_view(std::string_view utf8, eol mode);
+  // Copy any still-referenced bytes from the load_view source into the
+  // document's owned storage and drop the view. After this call it is safe
+  // to release the underlying source. No-op if no view is currently active
+  // or all referenced bytes have already been edited out.
+  void materialize();
   // Return the entire document content as UTF-8.
   std::string all_text() const;
   // Switch the document's EOL mode (re-classifies existing lines).
@@ -209,6 +243,16 @@ class plaindoc {
   size_t length() const { return ptable_.length(); }
   eol eol_mode() const { return ltable_.eol_mode(); }
   bool mixed_eol() const { return mixeol_; }
+
+  // Replace the piecetable with one whose `initbuf_` aliases `utf8` (no
+  // copy). Recomputes the line index. The caller MUST keep `utf8` alive
+  // until the next `load_view` / `load_text` / `materialize` call or the
+  // document is destroyed.
+  void load_view(std::string_view utf8, eol mode);
+  // Copy any still-referenced bytes from the load_view source into the
+  // document's owned storage and drop the view. No-op if the document has
+  // already detached from any external storage.
+  void materialize();
 
   // Lazily-initialized rendering pipeline. The render() call performs glyph
   // shaping and layout but does not draw to any surface; platform code reads

@@ -1,4 +1,5 @@
 // std
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -98,6 +99,83 @@ TEST_F(host_doc_ops, load_text_then_edit_uses_new_eol) {
 TEST_F(host_doc_ops, load_text_invalidates_viewport) {
   host_->invalidates_ = 0;
   host_->load_text("hello", swg::eol::lf);
+  EXPECT_GT(host_->invalidates_, 0);
+}
+
+// load_view -----------------------------------------------------------------
+
+TEST_F(host_doc_ops, load_view_replaces_content_without_copy) {
+  std::string source = "hello view";
+  host_->load_view(source, swg::eol::lf);
+  EXPECT_EQ(host_->document()->length(), source.size());
+  EXPECT_EQ(host_->all_text(), source);
+  EXPECT_EQ(host_->document()->pieces().initbuf().data(), source.data());
+  EXPECT_TRUE(host_->document()->pieces().references_initbuf());
+}
+
+TEST_F(host_doc_ops, load_view_resets_caret_selection_undo_and_dirty) {
+  host_->insert_char("a");  // sets dirty + creates an undo entry
+  host_->set_selection_anchor(0);
+  host_->caret(1);
+  ASSERT_TRUE(host_->is_dirty());
+  ASSERT_TRUE(host_->can_undo());
+
+  std::string source = "fresh content";
+  host_->load_view(source, swg::eol::lf);
+
+  EXPECT_FALSE(host_->is_dirty());
+  EXPECT_FALSE(host_->can_undo());
+  EXPECT_FALSE(host_->can_redo());
+  EXPECT_FALSE(host_->has_selection());
+  EXPECT_EQ(host_->inspos(), 0u);
+}
+
+TEST_F(host_doc_ops, load_view_invalidates_viewport) {
+  host_->invalidates_ = 0;
+  std::string source = "abc";
+  host_->load_view(source, swg::eol::lf);
+  EXPECT_GT(host_->invalidates_, 0);
+}
+
+TEST_F(host_doc_ops, load_view_then_subsequent_load_text_detaches) {
+  std::string source = "external bytes";
+  host_->load_view(source, swg::eol::lf);
+  ASSERT_TRUE(host_->document()->pieces().references_initbuf());
+  host_->load_text("owned bytes", swg::eol::lf);
+  EXPECT_FALSE(host_->document()->pieces().references_initbuf());
+  EXPECT_EQ(host_->all_text(), "owned bytes");
+}
+
+TEST_F(host_doc_ops, materialize_detaches_from_external_storage) {
+  std::string source = "external bytes 12345";
+  host_->load_view(source, swg::eol::lf);
+  ASSERT_TRUE(host_->document()->pieces().references_initbuf());
+  host_->materialize();
+  EXPECT_FALSE(host_->document()->pieces().references_initbuf());
+  std::string snapshot = host_->all_text();
+  // Mutating the source after materialize must not corrupt the document.
+  std::fill(source.begin(), source.end(), 'X');
+  EXPECT_EQ(host_->all_text(), snapshot);
+}
+
+TEST_F(host_doc_ops, edits_after_load_view_work_correctly) {
+  std::string source = "abc";
+  host_->load_view(source, swg::eol::lf);
+  host_->caret(3);
+  host_->insert_char("d");
+  EXPECT_EQ(host_->all_text(), "abcd");
+  // Undo must restore the original view-backed content unchanged.
+  host_->undo();
+  EXPECT_EQ(host_->all_text(), "abc");
+}
+
+// on_doc_changed (damage-aware) ---------------------------------------------
+
+TEST_F(host_doc_ops, on_doc_changed_default_dispatches_invalidate) {
+  // The default body of on_doc_changed must call on_invalidate, otherwise
+  // fake_host fixtures that only override on_invalidate would not see edits.
+  host_->invalidates_ = 0;
+  host_->insert_char("a");
   EXPECT_GT(host_->invalidates_, 0);
 }
 

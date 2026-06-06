@@ -8,11 +8,14 @@ namespace swg {
 
 FT_Library ft_library = nullptr;
 
+namespace {}  // namespace
+
 namespace details {
 
 void ft_face_deleter::operator()(FT_Face ptr) { check_fterror(FT_Done_Face(ptr)); }
-
 void hb_font_deleter::operator()(hb_font_t* ptr) { hb_font_destroy(ptr); }
+void shader_deleter::operator()(GLuint shader) { glDeleteShader(shader); }
+void gl_program_deleter::operator()(GLuint prog) { glDeleteProgram(prog); }
 
 }  // namespace details
 

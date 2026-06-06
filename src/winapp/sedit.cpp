@@ -191,7 +191,6 @@ class Sedit : public swg::host {
     SwapBuffers(hdc_.get());
     return 0;
   }
-
   LRESULT OnChar(wchar_t uchar) {
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
@@ -269,7 +268,6 @@ class Sedit : public swg::host {
           LoadWglProc<PFNWGLCHOOSEPIXELFORMATARBPROC>("wglChoosePixelFormatARB");
       auto wglCreateContextAttribsARB =
           LoadWglProc<PFNWGLCREATECONTEXTATTRIBSARBPROC>("wglCreateContextAttribsARB");
-
       if (HasWglExtension(wglGetExtensionsStringARB, bootstrap->hdc.get(),
                           "WGL_ARB_pixel_format") &&
           wglChoosePixelFormatARB) {
@@ -306,7 +304,6 @@ class Sedit : public swg::host {
       } else {
         SetLegacyOpenGLPixelFormat(hdc.get());
       }
-
       if (HasWglExtension(wglGetExtensionsStringARB, bootstrap->hdc.get(),
                           "WGL_ARB_create_context") &&
           wglCreateContextAttribsARB) {
@@ -319,7 +316,7 @@ class Sedit : public swg::host {
                        0};
         ctx.reset(wglCreateContextAttribsARB(hdc.get(), nullptr, attrs));
       }
-    } // boostrap wgl
+    }  // boostrap wgl
 
     if (!ctx) {
       ctx.reset(wglCreateContext(hdc.get()));
@@ -327,17 +324,16 @@ class Sedit : public swg::host {
         throw std::runtime_error{"opengl context creation error"};
       }
     }
-
     if (!wglMakeCurrent(hdc.get(), ctx.get())) {
       throw std::runtime_error{"opengl context activation error"};
     }
-
     if (!gladLoadGL()) {
       wglMakeCurrent(nullptr, nullptr);
       throw std::runtime_error{"opengl function loading error"};
     }
     glrc_ = std::move(ctx);
     hdc_ = std::move(hdc);
+    initialize_graphics();
   }
 
  private:

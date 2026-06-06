@@ -8,6 +8,7 @@
 #include "fontengine.hpp"
 #include "linetable.hpp"
 #include "piecetable.hpp"
+#include "resource.hpp"
 
 namespace swg {
 
@@ -26,6 +27,8 @@ class host {
  public:
   virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
+
+  void initialize_graphics();
   void render(rect rc);
   void caret(docpos pos);
   docpos caret() const;
@@ -40,6 +43,7 @@ class host {
 
  private:
   size_t inspos_ = 0;
+  unique_gl_program glprog_;
 };
 
 class plaindoc {

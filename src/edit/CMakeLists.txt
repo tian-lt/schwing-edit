@@ -4,6 +4,7 @@ add_library(edit
   piecetable.cpp
   plaindoc.cpp
   resource.cpp
+  shaders.cpp
 )
 
 target_include_directories(edit PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

@@ -5,6 +5,7 @@
 #include <glad/glad.h>
 // swg
 #include "plaindoc.hpp"
+#include "shaders.hpp"
 
 namespace swg {
 
@@ -27,8 +28,11 @@ struct host::impl {
     auto l0 = self->doc->ltable_.line_at_pos(pos_before);
     auto l1 = self->doc->ltable_.line_at_pos(pos_after);
     l0 = l0 > l1 ? l1 : l0;
+    // TODO:
   }
 };
+
+void host::initialize_graphics() { glprog_ = details::create_gl_program(); }
 void host::render(rect /*rc*/) {}
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

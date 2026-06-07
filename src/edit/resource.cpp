@@ -14,8 +14,11 @@ namespace details {
 
 void ft_face_deleter::operator()(FT_Face ptr) { check_fterror(FT_Done_Face(ptr)); }
 void hb_font_deleter::operator()(hb_font_t* ptr) { hb_font_destroy(ptr); }
-void shader_deleter::operator()(GLuint shader) { glDeleteShader(shader); }
+void hb_buffer_deleter::operator()(hb_buffer_t* ptr) { hb_buffer_destroy(ptr); }
+void gl_shader_deleter::operator()(GLuint shader) { glDeleteShader(shader); }
 void gl_program_deleter::operator()(GLuint prog) { glDeleteProgram(prog); }
+void gl_va_deleter::operator()(GLuint va) { glDeleteVertexArrays(1, &va); }
+void gl_buffer_deleter::operator()(GLuint buffer) { glDeleteBuffers(1, &buffer); }
 
 }  // namespace details
 

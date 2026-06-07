@@ -33,10 +33,13 @@ struct unique_resource {
     }
     return *this;
   }
-  ~unique_resource() {
-    if (res_) {
-      Deleter{}(*res_);
-    }
+  ~unique_resource() { reset(); }
+  T* put()
+    requires std::is_default_constructible_v<T>
+  {
+    reset();
+    res_.emplace();
+    return &*res_;
   }
   explicit operator bool() const noexcept { return res_.has_value(); }
   bool has_value() const noexcept { return res_.has_value(); }
@@ -50,6 +53,12 @@ struct unique_resource {
     res_ = std::nullopt;
     return res;
   };
+  void reset() {
+    if (res_) {
+      Deleter{}(*res_);
+      res_.reset();
+    }
+  }
 
  private:
   std::optional<T> res_;
@@ -61,19 +70,31 @@ struct ft_face_deleter {
 struct hb_font_deleter {
   void operator()(hb_font_t*);
 };
-struct shader_deleter {
+struct hb_buffer_deleter {
+  void operator()(hb_buffer_t*);
+};
+struct gl_shader_deleter {
   void operator()(GLuint);
 };
 struct gl_program_deleter {
   void operator()(GLuint program);
+};
+struct gl_va_deleter {
+  void operator()(GLuint va);
+};
+struct gl_buffer_deleter {
+  void operator()(GLuint buffer);
 };
 
 }  // namespace details
 
 using unique_ft_face = std::unique_ptr<std::remove_pointer_t<FT_Face>, details::ft_face_deleter>;
 using unique_hb_font = std::unique_ptr<hb_font_t, details::hb_font_deleter>;
-using unique_shader = details::unique_resource<GLuint, details::shader_deleter>;
+using unique_hb_buffer = std::unique_ptr<hb_buffer_t, details::hb_buffer_deleter>;
+using unique_gl_shader = details::unique_resource<GLuint, details::gl_shader_deleter>;
 using unique_gl_program = details::unique_resource<GLuint, details::gl_program_deleter>;
+using unique_gl_vertext_array = details::unique_resource<GLuint, details::gl_va_deleter>;
+using unique_gl_buffer = details::unique_resource<GLuint, details::gl_buffer_deleter>;
 
 FT_Library get_ft_library();
 void initialize();

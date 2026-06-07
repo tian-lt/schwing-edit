@@ -44,14 +44,15 @@ class host {
  private:
   size_t inspos_ = 0;
   unique_gl_program glprog_;
+  unique_gl_vertext_array vao_;
+  unique_gl_buffer vbo_;
 };
 
 class plaindoc {
   friend class host;
 
  public:
-  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
-      : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize), eol_(eol) {}
+  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol);
   void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);

@@ -10,8 +10,8 @@ namespace swg::details {
 
 namespace {
 
-unique_shader compile_shader(GLenum type, const char* source) {
-  unique_shader shader{glCreateShader(type)};
+unique_gl_shader compile_shader(GLenum type, const char* source) {
+  unique_gl_shader shader{glCreateShader(type)};
   glShaderSource(shader.get(), 1, &source, nullptr);
   glCompileShader(shader.get());
   GLint status;
@@ -29,9 +29,9 @@ unique_shader compile_shader(GLenum type, const char* source) {
 unique_gl_program create_gl_program() {
   const char* vs_source = R"(
 #version 330 core
-layout (location = 0) in vec2 aPos;
+layout (location = 0) in vec3 aPos;
 void main() {
-  gl_Position = vec4(aPos, 0.0, 1.0);
+  gl_Position = vec4(aPos, 1.0);
 }
 )";
   const char* fs_source = R"(

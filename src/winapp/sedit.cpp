@@ -175,8 +175,9 @@ class Sedit : public swg::host {
 
  private:
   void on_invalidate(swg::rect rc) override {
-    RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
-    InvalidateRect(hwnd_, &winrc, FALSE);
+    //RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
+    //InvalidateRect(hwnd_, &winrc, FALSE);
+    InvalidateRect(hwnd_, nullptr, FALSE);
   }
 
   LRESULT OnPaint() {
@@ -220,6 +221,7 @@ class Sedit : public swg::host {
   LRESULT OnSize(int width, int height) {
     viewport.w = width;
     viewport.h = height;
+    glViewport(0, 0, width, height);
     return 0;
   }
   LRESULT OnSetFocus() {

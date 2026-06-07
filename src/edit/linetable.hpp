@@ -41,6 +41,8 @@ class linetable {
   bool rebuild(const piecetable& ptable, eol eol);
   bool insert(size_t pos, std::string_view data);
   size_t line_at_pos(size_t pos) const;
+  line operator[](size_t idx) const noexcept { return linelist_[idx]; }
+  size_t size() const noexcept { return linelist_.size(); }
 
  private:
   std::vector<line> linelist_;

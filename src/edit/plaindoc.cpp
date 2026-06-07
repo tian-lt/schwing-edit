@@ -103,11 +103,15 @@ void host::erase_char() {
   size_t l = std::min(6uz, inspos_);
   auto s = doc->get(inspos_ - l, l);
   size_t e = inspos_ - 1;
-  for (auto it = s.rbegin(); it != s.rend(); ++it) {
-    if ((*it & 0xC0) != 0x80) {
-      break;
-    }
+  if (s.size() >= 2 && s.back() == '\n' && s[s.size() - 2] == '\r') {
     --e;
+  } else {
+    for (auto it = s.rbegin(); it != s.rend(); ++it) {
+      if ((*it & 0xC0) != 0x80) {
+        break;
+      }
+      --e;
+    }
   }
   doc->erase(e, inspos_ - e);
   size_t before = inspos_;

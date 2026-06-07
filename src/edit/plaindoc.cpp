@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <generator>
 // gl
 #include <glad/glad.h>
 // swg
@@ -12,6 +13,23 @@
 namespace swg {
 
 namespace {
+
+using quad = std::array<quad_vertex, 4>;
+struct glyph {
+  hb_glyph_info_t* info = nullptr;
+  hb_glyph_position_t* pos = nullptr;
+  FT_GlyphSlot slot = nullptr;
+};
+
+quad make_quad(float x0, float y0, float x1, float y1, float u, float v) {
+  // TODO: calculate u,v based on glyph metrics
+  return {
+      quad_vertex{x0, y0, u, v},
+      quad_vertex{x1, y0, u, v},
+      quad_vertex{x0, y1, u, v},
+      quad_vertex{x1, y1, u, v},
+  };
+}
 
 size_t mock_quads(quad_vertex* dst, double t) {
   const int cols = 32, rows = 18;
@@ -99,7 +117,7 @@ struct host::impl {
     // TODO: update underlying data
     self->on_invalidate({});
   }
-  static void shape_line(host* self, size_t line_idx) {
+  static std::generator<glyph> shape_line(host* self, size_t line_idx) {
     auto line = self->doc->ltable_[line_idx];
     unique_hb_buffer hbbuf{hb_buffer_create()};  // TODO: reuse buffers
     auto u8data = self->doc->ptable_.get(line.beg, line.length);
@@ -112,8 +130,6 @@ struct host::impl {
     FT_Face face = self->doc->fonts_.front().ftface();
     for (unsigned i = 0; i < glyph_count; ++i) {
       auto& info = glyph_info[i];
-      auto& pos = glyph_pos[i];
-      (void)pos;
       if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT | FT_LOAD_COLOR)) {
         // TODO: log error
         continue;
@@ -121,6 +137,27 @@ struct host::impl {
       if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {
         // TODO: log error
         continue;
+      }
+      co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .slot = face->glyph};
+    }
+  }
+  static std::generator<quad> layout(host* self) {
+    float penx = 0, peny = 24; // TODO: baseline
+    if (self->doc->ltable_.size() > 0) {
+      for (const glyph& g : shape_line(self, 0)) {
+        float xoff = g.pos->x_offset / 64.0f;
+        float yoff = g.pos->y_offset / 64.0f;
+        float xadv = g.pos->x_advance / 64.0f;
+        float yadv = g.pos->y_advance / 64.0f;
+        float ox = penx + xoff;
+        float oy = peny + yoff;
+        float x0 = ox + (float)g.slot->bitmap_left;
+        float y0 = oy - (float)g.slot->bitmap_top;
+        float x1 = x0 + (float)g.slot->bitmap.width;
+        float y1 = y0 + (float)g.slot->bitmap.rows;
+        co_yield make_quad(x0, y0, x1, y1, 0.0f, 0.0f);
+        penx += xadv;
+        peny += yadv;
       }
     }
   }
@@ -138,21 +175,22 @@ void host::initialize_graphics() {
   tex = mock_atlas();
   streamer_.emplace();
 }
-static double t = 0;
 
 void host::render(rect /*rc*/) {
-  if (doc->ltable_.size() > 0) {
-    impl::shape_line(this, 0);
+  quad_vertex* verts = streamer_->begin();
+  size_t quad_count = 0;
+  auto quadgen = impl::layout(this);
+  for (const auto& q : quadgen) {
+    std::memcpy(verts, q.data(), sizeof(quad));
+    verts += q.size();
+    ++quad_count;
   }
-  auto* v = streamer_->begin();
-  size_t vc = mock_quads(v, t);
-  t += 0.2;
   glUseProgram(glprog_.get());
   glUniform2f(locvp, (float)viewport.w, (float)viewport.h);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, tex);
   glUniform1i(locatlas, 0);
-  streamer_->end(vc);
+  streamer_->end(quad_count);
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

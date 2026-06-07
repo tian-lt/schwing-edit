@@ -17,6 +17,10 @@ struct linetable_insert_tests_run_Test;
 struct linetable_insert_matches_rebuild_param_equivalent_Test;
 struct linetable_tests_insert_matches_rebuild_Test;
 struct linetable_tests_insert_into_empty_table_Test;
+struct linetable_erase_tests_run_Test;
+struct linetable_erase_matches_rebuild_param_equivalent_Test;
+struct linetable_tests_erase_to_empty_Test;
+struct linetable_tests_erase_clamps_past_end_Test;
 };  // namespace ut::linetable_ut
 #endif  // SWGUT
 
@@ -29,6 +33,10 @@ class linetable {
   FRIEND_TEST(ut::linetable_ut::linetable_insert_matches_rebuild_param, equivalent);
   FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_matches_rebuild);
   FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_into_empty_table);
+  FRIEND_TEST(ut::linetable_ut::linetable_erase_tests, run);
+  FRIEND_TEST(ut::linetable_ut::linetable_erase_matches_rebuild_param, equivalent);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, erase_to_empty);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, erase_clamps_past_end);
 #endif  // SWGUT
 
   struct line {
@@ -40,6 +48,7 @@ class linetable {
   explicit linetable(eol eol) : eol_(eol) {}
   bool rebuild(const piecetable& ptable, eol eol);
   bool insert(size_t pos, std::string_view data);
+  void erase(size_t pos, size_t length);
   size_t line_at_pos(size_t pos) const;
   line operator[](size_t idx) const noexcept { return linelist_[idx]; }
   size_t size() const noexcept { return linelist_.size(); }

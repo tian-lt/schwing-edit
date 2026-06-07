@@ -560,4 +560,224 @@ TEST(linetable_tests, insert_matches_rebuild) {
   }
 }
 
+namespace {
+struct erase_op_step {
+  size_t pos;
+  size_t length;
+};
+
+struct erase_case {
+  std::string original;
+  eol mode = eol::lf;
+  std::vector<erase_op_step> ops;
+  std::vector<expected_line> expected_lines;
+};
+}  // namespace
+
+struct linetable_erase_tests : ::testing::TestWithParam<erase_case> {};
+
+TEST_P(linetable_erase_tests, run) {
+  const auto& p = GetParam();
+  piecetable ptable{p.original};
+  linetable table{eol::lf};
+  table.rebuild(ptable, p.mode);
+  for (const auto& step : p.ops) {
+    table.erase(step.pos, step.length);
+  }
+  const auto& lines = table.linelist_;
+  ASSERT_EQ(lines.size(), p.expected_lines.size());
+  for (size_t i = 0; i < lines.size(); ++i) {
+    EXPECT_EQ(lines[i].beg, p.expected_lines[i].beg) << "line index " << i;
+    EXPECT_EQ(lines[i].length, p.expected_lines[i].length) << "line index " << i;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(within_line, linetable_erase_tests,
+                        ::testing::Values(
+                            // erase in the middle of a single line
+                            erase_case{.original = "abcdef",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 2, .length = 2}},              // "cd"
+                                       .expected_lines = {{.beg = 0, .length = 4}}},  // "abef"
+                            // erase a prefix of the only line
+                            erase_case{.original = "abcdef",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 0, .length = 3}},              // "abc"
+                                       .expected_lines = {{.beg = 0, .length = 3}}},  // "def"
+                            // erase a suffix running to the end of the document
+                            erase_case{.original = "abcdef",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 3, .length = 3}},              // "def"
+                                       .expected_lines = {{.beg = 0, .length = 3}}},  // "abc"
+                            // zero-length erase is a no-op
+                            erase_case{.original = "hello\n",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 2, .length = 0}},
+                                       .expected_lines = {{.beg = 0, .length = 6}}}));
+
+INSTANTIATE_TEST_CASE_P(merge_lines, linetable_erase_tests,
+                        ::testing::Values(
+                            // erase across one terminator merges two lines
+                            erase_case{.original = "ab\ncd\n",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 1, .length = 3}},              // "b\nc"
+                                       .expected_lines = {{.beg = 0, .length = 3}}},  // "ad\n"
+                            // erase across two terminators merges three lines
+                            erase_case{.original = "ab\ncd\nef\n",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 1, .length = 6}},              // "b\ncd\ne"
+                                       .expected_lines = {{.beg = 0, .length = 3}}},  // "af\n"
+                            // erasing just the terminator merges with the next line
+                            erase_case{.original = "ab\ncd",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 2, .length = 1}},              // "\n"
+                                       .expected_lines = {{.beg = 0, .length = 4}}},  // "abcd"
+                            // erase a whole word leaving an empty middle line
+                            erase_case{.original = "ab\ncd\nef",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 3, .length = 2}},                // "cd"
+                                       .expected_lines = {{.beg = 0, .length = 3},      // "ab\n"
+                                                          {.beg = 3, .length = 1},      // "\n"
+                                                          {.beg = 4, .length = 2}}}));  // "ef"
+
+INSTANTIATE_TEST_CASE_P(
+    whole_lines, linetable_erase_tests,
+    ::testing::Values(
+        // drop the first line
+        erase_case{.original = "ab\ncd\nef\n",
+                   .mode = eol::lf,
+                   .ops = {{.pos = 0, .length = 3}},
+                   .expected_lines = {{.beg = 0, .length = 3}, {.beg = 3, .length = 3}}},
+        // drop a middle line
+        erase_case{.original = "ab\ncd\nef\n",
+                   .mode = eol::lf,
+                   .ops = {{.pos = 3, .length = 3}},
+                   .expected_lines = {{.beg = 0, .length = 3}, {.beg = 3, .length = 3}}},
+        // drop the last (terminated) line -> no spurious trailing empty line
+        erase_case{.original = "ab\ncd\nef\n",
+                   .mode = eol::lf,
+                   .ops = {{.pos = 6, .length = 3}},
+                   .expected_lines = {{.beg = 0, .length = 3}, {.beg = 3, .length = 3}}}));
+
+INSTANTIATE_TEST_CASE_P(crlf_and_cr, linetable_erase_tests,
+                        ::testing::Values(
+                            // erase a whole "\r\n" terminator together -> clean merge
+                            erase_case{.original = "ab\r\ncd\r\n",
+                                       .mode = eol::crlf,
+                                       .ops = {{.pos = 2, .length = 2}},              // "\r\n"
+                                       .expected_lines = {{.beg = 0, .length = 6}}},  // "abcd\r\n"
+                            // drop a whole crlf-terminated line
+                            erase_case{.original = "ab\r\ncd\r\n",
+                                       .mode = eol::crlf,
+                                       .ops = {{.pos = 0, .length = 4}},              // "ab\r\n"
+                                       .expected_lines = {{.beg = 0, .length = 4}}},  // "cd\r\n"
+                            // erase a bare cr terminator -> clean merge
+                            erase_case{.original = "ab\rcd\r",
+                                       .mode = eol::cr,
+                                       .ops = {{.pos = 2, .length = 1}},                // "\r"
+                                       .expected_lines = {{.beg = 0, .length = 5}}}));  // "abcd\r"
+
+INSTANTIATE_TEST_CASE_P(sequential_erases, linetable_erase_tests,
+                        ::testing::Values(
+                            // drop the first line twice
+                            erase_case{.original = "ab\ncd\nef\n",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 0, .length = 3}, {.pos = 0, .length = 3}},
+                                       .expected_lines = {{.beg = 0, .length = 3}}},  // "ef\n"
+                            // erase two characters one after another from the same line
+                            erase_case{.original = "abcdef",
+                                       .mode = eol::lf,
+                                       .ops = {{.pos = 1, .length = 1},
+                                               {.pos = 1, .length = 1}},  // 'b' then 'c'
+                                       .expected_lines = {{.beg = 0, .length = 4}}}));  // "adef"
+
+// erase(pos, length) followed by a fresh rebuild must produce the same linelist_.
+// Cases avoid forming/exposing terminators at the cut seam (see linetable::erase docs).
+namespace {
+struct erase_vs_rebuild_case {
+  std::string original;
+  eol mode = eol::lf;
+  size_t pos;
+  size_t length;
+};
+}  // namespace
+
+class linetable_erase_matches_rebuild_param
+    : public ::testing::TestWithParam<erase_vs_rebuild_case> {};
+
+TEST_P(linetable_erase_matches_rebuild_param, equivalent) {
+  const auto& p = GetParam();
+
+  // path A: rebuild on the original, then incremental erase
+  piecetable ptable_a{p.original};
+  linetable table_a{eol::lf};
+  table_a.rebuild(ptable_a, p.mode);
+  table_a.erase(p.pos, p.length);
+
+  // path B: apply the erase via piecetable, then full rebuild
+  piecetable ptable_b{p.original};
+  ptable_b.erase(p.pos, p.length);
+  linetable table_b{eol::lf};
+  table_b.rebuild(ptable_b, p.mode);
+
+  const auto& la = table_a.linelist_;
+  const auto& lb = table_b.linelist_;
+  ASSERT_EQ(la.size(), lb.size());
+  for (size_t i = 0; i < la.size(); ++i) {
+    EXPECT_EQ(la[i].beg, lb[i].beg) << "line " << i;
+    EXPECT_EQ(la[i].length, lb[i].length) << "line " << i;
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    cases, linetable_erase_matches_rebuild_param,
+    ::testing::Values(
+        erase_vs_rebuild_case{.original = "abcdef", .mode = eol::lf, .pos = 2, .length = 2},
+        erase_vs_rebuild_case{.original = "abcdef", .mode = eol::lf, .pos = 0, .length = 3},
+        erase_vs_rebuild_case{.original = "abcdef", .mode = eol::lf, .pos = 3, .length = 3},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 1, .length = 3},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 1, .length = 6},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 0, .length = 3},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 3, .length = 3},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 6, .length = 3},
+        erase_vs_rebuild_case{.original = "ab\ncd\nef\n", .mode = eol::lf, .pos = 0, .length = 9},
+        erase_vs_rebuild_case{.original = "ab\ncd", .mode = eol::lf, .pos = 2, .length = 1},
+        // crlf: erase the entire "\r\n" terminator together
+        erase_vs_rebuild_case{.original = "ab\r\ncd\r\n", .mode = eol::crlf, .pos = 2, .length = 2},
+        // crlf: drop a whole line
+        erase_vs_rebuild_case{.original = "ab\r\ncd\r\n", .mode = eol::crlf, .pos = 0, .length = 4},
+        // cr: erase a bare cr terminator
+        erase_vs_rebuild_case{.original = "ab\rcd\r", .mode = eol::cr, .pos = 2, .length = 1}));
+
+TEST(linetable_tests, erase_to_empty) {
+  // Erasing every byte collapses the table to the empty state (matches rebuild on "").
+  piecetable ptable{"ab\ncd\n"};
+  linetable table{eol::lf};
+  table.rebuild(ptable, eol::lf);
+  ASSERT_EQ(table.linelist_.size(), 2u);
+  table.erase(0, 6);
+  EXPECT_TRUE(table.linelist_.empty());
+}
+
+TEST(linetable_tests, erase_clamps_past_end) {
+  piecetable ptable{"abc"};
+  linetable table{eol::lf};
+  table.rebuild(ptable, eol::lf);
+
+  // length runs past the end of the document; erase clamps to the document bounds.
+  table.erase(1, 100);
+  ASSERT_EQ(table.linelist_.size(), 1u);
+  EXPECT_EQ(table.linelist_[0].beg, 0u);
+  EXPECT_EQ(table.linelist_[0].length, 1u);  // "a"
+
+  // erase starting at/after the end is a no-op.
+  table.erase(5, 3);
+  ASSERT_EQ(table.linelist_.size(), 1u);
+  EXPECT_EQ(table.linelist_[0].length, 1u);
+
+  // erasing the remaining content empties the table.
+  table.erase(0, 1);
+  EXPECT_TRUE(table.linelist_.empty());
+}
+
 }  // namespace swg::ut::linetable_ut

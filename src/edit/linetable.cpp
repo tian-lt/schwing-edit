@@ -145,6 +145,58 @@ bool linetable::insert(size_t pos, std::string_view data) {
   return (eol_mask & (eol_mask - 1)) != 0;
 }
 
+void linetable::erase(size_t pos, size_t length) {
+  if (length == 0 || linelist_.empty()) {
+    return;
+  }
+
+  const size_t doc_len = linelist_.back().beg + linelist_.back().length;
+  if (pos >= doc_len) {
+    return;  // erase starts at or beyond the end of the document: nothing to remove
+  }
+
+  const size_t erased = std::min(length, doc_len - pos);  // clamp the cut to the document
+  const size_t end = pos + erased;                        // first byte kept after the cut
+
+  if (erased == doc_len) {
+    // The whole document was removed -> empty line table, matching rebuild() on "".
+    linelist_.clear();
+    return;
+  }
+
+  // The surviving content is the prefix of the first affected line (bytes before pos)
+  // joined with the suffix of the line that contains `end` (bytes at/after end). Every
+  // line strictly between them is consumed entirely; the join removes the terminators in
+  // between, so those lines collapse into a single merged line.
+  const size_t first_idx = line_at_pos(pos);
+  const size_t tail_idx = line_at_pos(end);
+  const line first = linelist_[first_idx];
+  const line tail = linelist_[tail_idx];
+
+  const size_t prefix_len = pos - first.beg;                 // kept bytes of the first line
+  const size_t suffix_len = (tail.beg + tail.length) - end;  // kept bytes of the tail line
+
+  const auto rm_begin = linelist_.begin() + first_idx;
+  const auto rm_end = linelist_.begin() + tail_idx + 1;  // half-open
+
+  if (prefix_len + suffix_len == 0) {
+    // The cut left an empty line at the very end of the document. The previous line's
+    // terminator now ends the document, so the empty trailing line is dropped (rebuild()
+    // never emits one). Nothing follows it, so no position fix-up is required.
+    linelist_.erase(rm_begin, rm_end);
+    return;
+  }
+
+  const line merged{.beg = first.beg, .length = prefix_len + suffix_len};
+  auto it = linelist_.erase(rm_begin, rm_end);
+  linelist_.insert(it, merged);
+
+  // Every line after the merged line slides left by the number of bytes removed.
+  for (size_t i = first_idx + 1; i < linelist_.size(); ++i) {
+    linelist_[i].beg -= erased;
+  }
+}
+
 size_t linetable::line_at_pos(size_t pos) const {
   auto it = std::ranges::upper_bound(linelist_, pos, {}, &line::beg);
   if (it == linelist_.begin()) {

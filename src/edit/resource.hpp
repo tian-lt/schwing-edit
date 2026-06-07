@@ -85,6 +85,9 @@ struct gl_va_deleter {
 struct gl_buffer_deleter {
   void operator()(GLuint buffer);
 };
+struct gl_fence_deleter {
+  void operator()(GLsync fence);
+};
 
 }  // namespace details
 
@@ -95,6 +98,7 @@ using unique_gl_shader = details::unique_resource<GLuint, details::gl_shader_del
 using unique_gl_program = details::unique_resource<GLuint, details::gl_program_deleter>;
 using unique_gl_vertext_array = details::unique_resource<GLuint, details::gl_va_deleter>;
 using unique_gl_buffer = details::unique_resource<GLuint, details::gl_buffer_deleter>;
+using unique_gl_fence = details::unique_resource<GLsync, details::gl_fence_deleter>;
 
 FT_Library get_ft_library();
 void initialize();

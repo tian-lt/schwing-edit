@@ -6,6 +6,7 @@
 #include <string_view>
 // schwing
 #include "fontengine.hpp"
+#include "glstreamer.hpp"
 #include "linetable.hpp"
 #include "piecetable.hpp"
 #include "resource.hpp"
@@ -44,8 +45,9 @@ class host {
  private:
   size_t inspos_ = 0;
   unique_gl_program glprog_;
-  unique_gl_vertext_array vao_;
-  unique_gl_buffer vbo_;
+  //unique_gl_vertext_array vao_;
+  //unique_gl_buffer vbo_;
+  std::optional<glstreamer> streamer_;
 };
 
 class plaindoc {

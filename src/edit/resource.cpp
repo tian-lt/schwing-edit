@@ -19,6 +19,7 @@ void gl_shader_deleter::operator()(GLuint shader) { glDeleteShader(shader); }
 void gl_program_deleter::operator()(GLuint prog) { glDeleteProgram(prog); }
 void gl_va_deleter::operator()(GLuint va) { glDeleteVertexArrays(1, &va); }
 void gl_buffer_deleter::operator()(GLuint buffer) { glDeleteBuffers(1, &buffer); }
+void gl_fence_deleter::operator()(GLsync fence) { glDeleteSync(fence); }
 
 }  // namespace details
 

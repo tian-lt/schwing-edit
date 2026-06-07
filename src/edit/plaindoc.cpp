@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 // gl
 #include <glad/glad.h>
 // swg
@@ -9,6 +10,61 @@
 #include "shaders.hpp"
 
 namespace swg {
+
+namespace {
+
+size_t mock_quads(quad_vertex* dst, double t) {
+  const int cols = 32, rows = 18;
+  const float qw = 32.0f, qh = 32.0f;
+  const float pad = 8.0f;
+
+  size_t count = 0;
+  for (int j = 0; j < rows; ++j) {
+    for (int i = 0; i < cols; ++i) {
+      float ox = 40.0f + i * (qw + pad);
+      float oy = 40.0f + j * (qh + pad);
+      float wobble = 6.0f * std::sin((float)t * 2.0f + i * 0.2f + j * 0.3f);
+      float x0 = ox, y0 = oy + wobble;
+      float x1 = ox + qw, y1 = oy + qh + wobble;
+
+      float u0 = (float)(0.0f + 0.1f * std::sin(t + i * 0.05f));
+      float v0 = (float)(0.0f + 0.1f * std::cos(t + j * 0.05f));
+      float u1 = u0 + 0.25f, v1 = v0 + 0.25f;
+
+      dst[count * 4 + 0] = {x0, y0, u0, v0};
+      dst[count * 4 + 1] = {x1, y0, u1, v0};
+      dst[count * 4 + 2] = {x0, y1, u0, v1};
+      dst[count * 4 + 3] = {x1, y1, u1, v1};
+      ++count;
+      if (count >= 512) return count;
+    }
+  }
+  return count;
+}
+
+static GLuint mock_atlas() {
+  const int W = 128, H = 128;
+  std::vector<uint8_t> px(W * H * 4);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      bool c = ((x / 16) ^ (y / 16)) & 1;
+      uint8_t v = c ? 230 : 40;
+      px[(y * W + x) * 4 + 0] = v;
+      px[(y * W + x) * 4 + 1] = (uint8_t)(x * 2);
+      px[(y * W + x) * 4 + 2] = (uint8_t)(y * 2);
+      px[(y * W + x) * 4 + 3] = 255;
+    }
+  GLuint tex = 0;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  return tex;
+}
+}  // namespace
 
 // ===--------------------
 // plaindoc implementation
@@ -58,7 +114,7 @@ struct host::impl {
       auto& info = glyph_info[i];
       auto& pos = glyph_pos[i];
       (void)pos;
-      if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
+      if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT | FT_LOAD_COLOR)) {
         // TODO: log error
         continue;
       }
@@ -70,24 +126,33 @@ struct host::impl {
   }
 };
 
+static GLint locvp;
+static GLint locatlas;
+static GLint tex;
+
 void host::initialize_graphics() {
-  std::array<float, 9> vertices = {0.0f, 0.5f, 0.0f, -0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f};
-  glGenVertexArrays(1, vao_.put());
-  glGenBuffers(1, vbo_.put());
-  glBindVertexArray(vao_.get());
-  glBindBuffer(GL_ARRAY_BUFFER, vbo_.get());
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
-  glEnableVertexAttribArray(0);
+  std::array<float, 9> vertices = {0.0f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f};
   glprog_ = details::create_gl_program();
+  locatlas = glGetUniformLocation(glprog_.get(), "uAtlas");
+  locvp = glGetUniformLocation(glprog_.get(), "uViewport");
+  tex = mock_atlas();
+  streamer_.emplace();
 }
+static double t = 0;
+
 void host::render(rect /*rc*/) {
   if (doc->ltable_.size() > 0) {
     impl::shape_line(this, 0);
   }
+  auto* v = streamer_->begin();
+  size_t vc = mock_quads(v, t);
+  t += 0.2;
   glUseProgram(glprog_.get());
-  glBindVertexArray(vao_.get());
-  glDrawArrays(GL_TRIANGLES, 0, 3);
+  glUniform2f(locvp, (float)viewport.w, (float)viewport.h);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glUniform1i(locatlas, 0);
+  streamer_->end(vc);
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

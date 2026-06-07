@@ -175,8 +175,8 @@ class Sedit : public swg::host {
 
  private:
   void on_invalidate(swg::rect rc) override {
-    //RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
-    //InvalidateRect(hwnd_, &winrc, FALSE);
+    // RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
+    // InvalidateRect(hwnd_, &winrc, FALSE);
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
 

@@ -145,7 +145,8 @@ class Sedit : public swg::host {
   Sedit(HWND hwnd, std::string fontpath, double fontsize)
       : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
     doc = &doc_;
-    double ratio = GetDpiForWindow(hwnd_) / 96.0;
+    dpi = GetDpiForWindow(hwnd_);
+    double ratio = dpi / 96.0;
     caretPosX_ = 4 * ratio;
     caretPosY_ = 2 * ratio;
     caretWidth_ = 1 * ratio;

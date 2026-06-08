@@ -87,9 +87,7 @@ static GLuint mock_atlas() {
 // ===--------------------
 // plaindoc implementation
 plaindoc::plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
-    : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize), eol_(eol) {
-  fonts_.emplace_back(fontpath_, fontsize_);
-}
+    : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize), eol_(eol) {}
 void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol) {
   if (new_fontpath.has_value()) {
     fontpath_ = *new_fontpath;
@@ -142,7 +140,7 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self) {
-    float penx = 0, peny = 24; // TODO: baseline
+    float penx = 0, peny = (float)self->doc->fontsize_ * self->dpi / 96.f;
     if (self->doc->ltable_.size() > 0) {
       for (const glyph& g : shape_line(self, 0)) {
         float xoff = g.pos->x_offset / 64.0f;
@@ -174,6 +172,7 @@ void host::initialize_graphics() {
   locvp = glGetUniformLocation(glprog_.get(), "uViewport");
   tex = mock_atlas();
   streamer_.emplace();
+  doc->fonts_.emplace_back(doc->fontpath_, doc->fontsize_, dpi);
 }
 
 void host::render(rect /*rc*/) {

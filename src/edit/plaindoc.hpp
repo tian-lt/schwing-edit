@@ -41,12 +41,11 @@ class host {
  protected:
   plaindoc* doc = nullptr;
   rect viewport = {};
+  int dpi = 96;
 
  private:
   size_t inspos_ = 0;
   unique_gl_program glprog_;
-  //unique_gl_vertext_array vao_;
-  //unique_gl_buffer vbo_;
   std::optional<glstreamer> streamer_;
 };
 

@@ -10,7 +10,7 @@ class fontengine {
   struct impl;
 
  public:
-  explicit fontengine(const std::string& fontpath, double fontsize);
+  explicit fontengine(const std::string& fontpath, double fontsize, int dpi);
   hb_font_t* hbfont() const { return hbfont_.get(); }
   FT_Face ftface() const { return ftface_.get(); }
 

@@ -2,3 +2,8 @@ build/
 x64/
 bin/
 obj/
+
+src/b/
+src/Testing/
+src/vcpkg_installed/
+

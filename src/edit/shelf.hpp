@@ -26,6 +26,7 @@ class shelfset {
  public:
   explicit shelfset(unsigned width, unsigned height) : width_(width), height_(height) {}
   void add_shelf() { shelves_.emplace_back(); }
+  size_t shelf_count() const noexcept { return shelves_.size(); }
   const shelfcell<V>* try_get_view(const K& key) const {
     auto iter = map_.find(key);
     if (iter != map_.end()) {

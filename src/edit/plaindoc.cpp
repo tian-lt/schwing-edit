@@ -128,13 +128,18 @@ struct host::impl {
     FT_Face face = self->doc->fonts_.front().ftface();
     for (unsigned i = 0; i < glyph_count; ++i) {
       auto& info = glyph_info[i];
-      if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT | FT_LOAD_COLOR)) {
-        // TODO: log error
-        continue;
-      }
-      if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {
-        // TODO: log error
-        continue;
+      if (auto uv = self->atlas_->try_get(face, info.codepoint); uv.has_value()) {
+        (void)uv;
+      } else {
+        if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT | FT_LOAD_COLOR)) {
+          // TODO: log error
+          continue;
+        }
+        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {
+          // TODO: log error
+          continue;
+        }
+        self->atlas_->set(face, info.codepoint);
       }
       co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .slot = face->glyph};
     }

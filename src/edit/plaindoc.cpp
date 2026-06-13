@@ -172,6 +172,7 @@ void host::initialize_graphics() {
   locvp = glGetUniformLocation(glprog_.get(), "uViewport");
   tex = mock_atlas();
   streamer_.emplace();
+  atlas_.emplace(512, 512);
   doc->fonts_.emplace_back(doc->fontpath_, doc->fontsize_, dpi);
 }
 

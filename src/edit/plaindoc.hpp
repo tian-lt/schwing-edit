@@ -7,6 +7,7 @@
 // schwing
 #include "fontengine.hpp"
 #include "glstreamer.hpp"
+#include "glyphatlas.hpp"
 #include "linetable.hpp"
 #include "piecetable.hpp"
 #include "resource.hpp"
@@ -47,6 +48,7 @@ class host {
   size_t inspos_ = 0;
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
+  std::optional<glyphatlas> atlas_;
 };
 
 class plaindoc {

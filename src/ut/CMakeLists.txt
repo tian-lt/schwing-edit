@@ -1,6 +1,7 @@
 add_executable(ut
   linetable_tests.cpp
   piecetable_tests.cpp
+  shelf_tests.cpp
 )
 
 target_compile_definitions(ut PRIVATE SWGUT)

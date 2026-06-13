@@ -1,6 +1,7 @@
 add_library(edit
   fontengine.cpp
   glstreamer.cpp
+  glyphatlas.cpp
   linetable.cpp
   piecetable.cpp
   plaindoc.cpp

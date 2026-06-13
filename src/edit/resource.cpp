@@ -20,6 +20,10 @@ void gl_program_deleter::operator()(GLuint prog) { glDeleteProgram(prog); }
 void gl_va_deleter::operator()(GLuint va) { glDeleteVertexArrays(1, &va); }
 void gl_buffer_deleter::operator()(GLuint buffer) { glDeleteBuffers(1, &buffer); }
 void gl_fence_deleter::operator()(GLsync fence) { glDeleteSync(fence); }
+void gl_texture_deleter::operator()(GLuint texture) { glDeleteTextures(1, &texture); }
+void gl_framebuffer_deleter::operator()(GLuint framebuffer) {
+  glDeleteFramebuffers(1, &framebuffer);
+}
 
 }  // namespace details
 

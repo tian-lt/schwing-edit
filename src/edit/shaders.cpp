@@ -29,26 +29,31 @@ unique_gl_shader compile_shader(GLenum type, const char* source) {
 unique_gl_program create_gl_program() {
   const char* vs_source = R"(
 #version 330 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec3 aUV;
+layout (location = 0) in ivec2 aPos;
+layout (location = 1) in ivec3 aUV;
 uniform vec2 uViewport;
-out vec3 vUV;
+out vec2 vUV;
+flat out int vLayer;
 void main() {
-  vec2 ndc = (aPos / uViewport) * 2.0 - 1.0;
+  // integer pixel coords -> NDC (vertices sit on pixel edges)
+  vec2 ndc = (vec2(aPos) / uViewport) * 2.0 - 1.0;
   ndc.y = -ndc.y;
   gl_Position = vec4(ndc, 0.0, 1.0);
-  vUV = aUV;
+  vUV = vec2(aUV.xy);
+  vLayer = aUV.z;
 }
 )";
   const char* fs_source = R"(
 #version 330 core
-in vec3 vUV;
+in vec2 vUV;
+flat in int vLayer;
 uniform sampler2DArray uAtlas;
 uniform vec2 uAtlasSize;
 out vec4 oColor;
 void main() {
-  vec2 normUV = vUV.xy / uAtlasSize;
-  float alpha = texture(uAtlas, vec3(normUV, vUV.z)).r;
+  // interpolation naturally places vUV at texel centers (integer + 0.5)
+  vec2 normUV = vUV / uAtlasSize;
+  float alpha = texture(uAtlas, vec3(normUV, float(vLayer))).r;
   oColor = vec4(0.0, 0.0, 0.0, alpha);
 }
 )";

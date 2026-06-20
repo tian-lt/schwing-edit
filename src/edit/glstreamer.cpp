@@ -48,11 +48,9 @@ glstreamer::glstreamer() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_.get());
 
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(quad_vertex),
-                          (void*)offsetof(quad_vertex, x));
+    glVertexAttribIPointer(0, 2, GL_INT, sizeof(quad_vertex), (void*)offsetof(quad_vertex, x));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(quad_vertex),
-                          (void*)offsetof(quad_vertex, u));
+    glVertexAttribIPointer(1, 3, GL_INT, sizeof(quad_vertex), (void*)offsetof(quad_vertex, u));
   }
   glBindVertexArray(0);
   glBindBuffer(GL_ARRAY_BUFFER, 0);

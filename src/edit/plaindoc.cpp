@@ -21,45 +21,16 @@ struct glyph {
   glyphrecord value;
 };
 
-quad make_quad(float x0, float y0, float x1, float y1, const glyphuv& uv) {
-  float u0 = uv.u, v0 = uv.v;
-  float u1 = uv.u + uv.w, v1 = uv.v + uv.h;
-  float layer = uv.layer;
+quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv) {
+  int32_t u0 = uv.u, v0 = uv.v;
+  int32_t u1 = uv.u + uv.w, v1 = uv.v + uv.h;
+  int32_t layer = uv.layer;
   return {
       quad_vertex{x0, y0, u0, v0, layer},
       quad_vertex{x1, y0, u1, v0, layer},
       quad_vertex{x0, y1, u0, v1, layer},
       quad_vertex{x1, y1, u1, v1, layer},
   };
-}
-
-size_t mock_quads(quad_vertex* dst, double t) {
-  const int cols = 32, rows = 18;
-  const float qw = 32.0f, qh = 32.0f;
-  const float pad = 8.0f;
-
-  size_t count = 0;
-  for (int j = 0; j < rows; ++j) {
-    for (int i = 0; i < cols; ++i) {
-      float ox = 40.0f + i * (qw + pad);
-      float oy = 40.0f + j * (qh + pad);
-      float wobble = 6.0f * std::sin((float)t * 2.0f + i * 0.2f + j * 0.3f);
-      float x0 = ox, y0 = oy + wobble;
-      float x1 = ox + qw, y1 = oy + qh + wobble;
-
-      float u0 = (float)(0.0f + 0.1f * std::sin(t + i * 0.05f));
-      float v0 = (float)(0.0f + 0.1f * std::cos(t + j * 0.05f));
-      float u1 = u0 + 0.25f, v1 = v0 + 0.25f;
-
-      dst[count * 4 + 0] = {x0, y0, u0, v0, 0};
-      dst[count * 4 + 1] = {x1, y0, u1, v0, 0};
-      dst[count * 4 + 2] = {x0, y1, u0, v1, 0};
-      dst[count * 4 + 3] = {x1, y1, u1, v1, 0};
-      ++count;
-      if (count >= 512) return count;
-    }
-  }
-  return count;
 }
 
 }  // namespace
@@ -133,10 +104,10 @@ struct host::impl {
         float yadv = g.pos->y_advance / 64.0f;
         float ox = penx + xoff;
         float oy = peny + yoff;
-        float x0 = ox + g.value.ext.left;
-        float y0 = oy - g.value.ext.top;
-        float x1 = x0 + g.value.uv.w;
-        float y1 = y0 + g.value.uv.h;
+        int32_t x0 = (int32_t)std::floor(ox) + g.value.ext.left;
+        int32_t y0 = (int32_t)std::floor(oy) - g.value.ext.top;
+        int32_t x1 = x0 + g.value.uv.w;
+        int32_t y1 = y0 + g.value.uv.h;
         co_yield make_quad(x0, y0, x1, y1, g.value.uv);
         penx += xadv;
         peny += yadv;

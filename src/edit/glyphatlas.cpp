@@ -13,8 +13,8 @@ struct glyphatlas::impl {
     glBindTexture(GL_TEXTURE_2D_ARRAY, self->texarr_.get());
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R8, w, h, (GLint)old_size + 1, 0, GL_RED,
                  GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     if (old) {
@@ -46,9 +46,12 @@ glyphatlas::glyphatlas(unsigned width, unsigned height)
 std::optional<glyphrecord> glyphatlas::try_get(FT_Face face, hb_codepoint_t codepoint) const {
   auto* cell = shelves_.try_get_view({face, codepoint});
   if (cell) {
-    return glyphrecord{
-        .uv = {.u = (float)cell->x, .v = (float)cell->y, .w = (float)cell->w, .h = (float)cell->h, .layer = (float)cell->shelf_index},
-        .ext = {.left = cell->payload.left, .top = cell->payload.top}};
+    return glyphrecord{.uv = {.u = (int32_t)cell->x,
+                              .v = (int32_t)cell->y,
+                              .w = (int32_t)cell->w,
+                              .h = (int32_t)cell->h,
+                              .layer = (int32_t)cell->shelf_index},
+                       .ext = {.left = cell->payload.left, .top = cell->payload.top}};
   }
   return std::nullopt;
 }
@@ -68,7 +71,7 @@ bool glyphatlas::try_bind_gl(const unique_gl_program& program) const {
 
 glyphrecord glyphatlas::set(FT_Face face, hb_codepoint_t codepoint) {
   const shelfcell<glyphext>* cell;
-  glyphext ext{.left = (float)face->glyph->bitmap_left, .top = (float)face->glyph->bitmap_top};
+  glyphext ext{.left = (int32_t)face->glyph->bitmap_left, .top = (int32_t)face->glyph->bitmap_top};
   if (cell = shelves_.try_put({face, codepoint}, ext, face->glyph->bitmap.width,
                               face->glyph->bitmap.rows);
       !cell) {
@@ -78,11 +81,15 @@ glyphrecord glyphatlas::set(FT_Face face, hb_codepoint_t codepoint) {
                             face->glyph->bitmap.rows);
   }
   assert(cell);
-  glyphuv g{.u = (float)cell->x, .v = (float)cell->y, .w = (float)cell->w, .h = (float)cell->h, .layer = (float)cell->shelf_index};
+  glyphuv g{.u = (int32_t)cell->x,
+            .v = (int32_t)cell->y,
+            .w = (int32_t)cell->w,
+            .h = (int32_t)cell->h,
+            .layer = (int32_t)cell->shelf_index};
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
   glBindTexture(GL_TEXTURE_2D_ARRAY, texarr_.get());
-  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, (int)g.u, (int)g.v, (int)cell->shelf_index, (int)g.w,
-                  (int)g.h, 1, GL_RED, GL_UNSIGNED_BYTE, face->glyph->bitmap.buffer);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, g.u, g.v, g.layer, g.w, g.h, 1, GL_RED, GL_UNSIGNED_BYTE,
+                  face->glyph->bitmap.buffer);
   return glyphrecord{.uv = g, .ext = ext};
 }
 

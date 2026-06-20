@@ -1,6 +1,7 @@
 #pragma once
 
 // std
+#include <cstdint>
 #include <optional>
 #include <vector>
 // swg
@@ -10,15 +11,15 @@
 namespace swg {
 
 struct glyphuv {
-  float u;
-  float v;
-  float w;
-  float h;
-  float layer;
+  int32_t u;
+  int32_t v;
+  int32_t w;
+  int32_t h;
+  int32_t layer;
 };
 struct glyphext {
-  float left;
-  float top;
+  int32_t left;
+  int32_t top;
 };
 struct glyphrecord {
   glyphuv uv;

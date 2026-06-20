@@ -1,13 +1,15 @@
 #pragma once
 
+// std
+#include <cstdint>
 // swg
 #include "resource.hpp"
 
 namespace swg {
 
 struct quad_vertex {
-  float x, y;
-  float u, v, layer;
+  int32_t x, y;
+  int32_t u, v, layer;
 };
 
 class glstreamer {

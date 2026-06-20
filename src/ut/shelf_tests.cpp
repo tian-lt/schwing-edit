@@ -53,6 +53,7 @@ TEST(shelf_tests, first_put_is_placed_at_origin) {
   s.add_shelf();
   auto* c = s.try_put(1, 99, 5, 10);
   ASSERT_NE(c, nullptr);
+  EXPECT_EQ(c->shelf_index, 0u);
   EXPECT_EQ(c->x, 0u);
   EXPECT_EQ(c->y, 0u);
   EXPECT_EQ(c->w, 5u);
@@ -77,8 +78,10 @@ TEST(shelf_tests, second_put_in_same_row_advances_x_by_w_plus_padding) {
   auto* c2 = s.try_put(2, 2, 4, 10);
   ASSERT_NE(c1, nullptr);
   ASSERT_NE(c2, nullptr);
+  EXPECT_EQ(c1->shelf_index, 0u);
   EXPECT_EQ(c1->x, 0u);
   EXPECT_EQ(c1->y, 0u);
+  EXPECT_EQ(c2->shelf_index, 0u);
   EXPECT_EQ(c2->x, 6u);  // 5 + padding(1)
   EXPECT_EQ(c2->y, 0u);
 }
@@ -139,12 +142,17 @@ TEST(shelf_tests, item_placed_in_earlier_row_uses_that_rows_y) {
   shelfset<int, int> s{30, 50};
   s.add_shelf();
   auto* c1 = s.try_put(1, 1, 5, 10);  // r0 at y=0
-  auto* c2 = s.try_put(2, 2, 5, 3);   // can't reuse r0 (3 < 10*2/3 territory; r0.h=10, 10 > 3*3/2=4) -> new row r1 at y=11
+  auto* c2 = s.try_put(
+      2, 2, 5,
+      3);  // can't reuse r0 (3 < 10*2/3 territory; r0.h=10, 10 > 3*3/2=4) -> new row r1 at y=11
   auto* c3 = s.try_put(3, 3, 5, 10);  // should reuse r0 since h matches; expected y=0
   ASSERT_NE(c1, nullptr);
   ASSERT_NE(c2, nullptr);
   ASSERT_NE(c3, nullptr);
+  EXPECT_EQ(c1->shelf_index, 0u);
+  EXPECT_EQ(c2->shelf_index, 0u);
   EXPECT_EQ(c2->y, 11u);
+  EXPECT_EQ(c3->shelf_index, 0u);
   EXPECT_EQ(c3->y, 0u);
   EXPECT_EQ(c3->x, 6u);
 }
@@ -154,9 +162,9 @@ TEST(shelf_tests, new_row_advances_cursor_x_so_next_put_does_not_overlap) {
   // causing the next put into that row to overlap the first item.
   shelfset<int, int> s{30, 50};
   s.add_shelf();
-  auto* c1 = s.try_put(1, 1, 5, 5);    // r0 at y=0
-  auto* c2 = s.try_put(2, 2, 5, 10);   // new row r1 at y=6, x=0
-  auto* c3 = s.try_put(3, 3, 4, 10);   // reuse r1; must NOT overlap c2
+  auto* c1 = s.try_put(1, 1, 5, 5);   // r0 at y=0
+  auto* c2 = s.try_put(2, 2, 5, 10);  // new row r1 at y=6, x=0
+  auto* c3 = s.try_put(3, 3, 4, 10);  // reuse r1; must NOT overlap c2
   ASSERT_NE(c2, nullptr);
   ASSERT_NE(c3, nullptr);
   EXPECT_EQ(c2->x, 0u);
@@ -178,9 +186,12 @@ TEST(shelf_tests, falls_through_to_next_shelf_when_current_is_full) {
   ASSERT_NE(c1, nullptr);
   ASSERT_NE(c2, nullptr);
   ASSERT_NE(c3, nullptr);
+  EXPECT_EQ(c1->shelf_index, 0u);
   EXPECT_EQ(c1->y, 0u);
+  EXPECT_EQ(c2->shelf_index, 0u);
   EXPECT_EQ(c2->y, 6u);
   // c3 lands in the freshly-added second shelf, at y=0 of that shelf
+  EXPECT_EQ(c3->shelf_index, 1u);
   EXPECT_EQ(c3->y, 0u);
   EXPECT_EQ(c3->x, 0u);
 }
@@ -202,12 +213,34 @@ TEST(shelf_tests, supports_move_only_payload) {
   s.add_shelf();
   auto* c = s.try_put(1, std::make_unique<int>(42), 5, 5);
   ASSERT_NE(c, nullptr);
+  EXPECT_EQ(c->shelf_index, 0u);
   ASSERT_NE(c->payload, nullptr);
   EXPECT_EQ(*c->payload, 42);
   const auto* v = s.try_get_view(1);
   ASSERT_NE(v, nullptr);
   ASSERT_NE(v->payload, nullptr);
   EXPECT_EQ(*v->payload, 42);
+}
+
+TEST(shelf_tests, shelf_index_spans_multiple_shelves) {
+  // 3 shelves; each can hold exactly one 5x5 item (height 6 = 5+padding)
+  shelfset<int, int> s{10, 6};
+  s.add_shelf();
+  s.add_shelf();
+  s.add_shelf();
+  auto* c0 = s.try_put(0, 0, 5, 5);
+  auto* c1 = s.try_put(1, 1, 5, 5);
+  auto* c2 = s.try_put(2, 2, 5, 5);
+  ASSERT_NE(c0, nullptr);
+  ASSERT_NE(c1, nullptr);
+  ASSERT_NE(c2, nullptr);
+  EXPECT_EQ(c0->shelf_index, 0u);
+  EXPECT_EQ(c1->shelf_index, 1u);
+  EXPECT_EQ(c2->shelf_index, 2u);
+  // verify via get_view as well
+  EXPECT_EQ(s.try_get_view(0)->shelf_index, 0u);
+  EXPECT_EQ(s.try_get_view(1)->shelf_index, 1u);
+  EXPECT_EQ(s.try_get_view(2)->shelf_index, 2u);
 }
 
 }  // namespace swg::ut

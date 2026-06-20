@@ -13,6 +13,7 @@ template <class V>
   requires(!std::is_reference_v<V>)
 struct shelfcell {
   V payload = {};
+  size_t shelf_index = 0;
   unsigned x = 0;
   unsigned y = 0;
   unsigned w = 0;
@@ -42,26 +43,30 @@ class shelfset {
     for (auto& s : shelves_) {
       for (auto& r : s.rows) {
         if (h <= r.h && r.h <= h * 3 / 2 && r.cursor_x + w + padding <= width_) {
-          auto [it, _] = map_.emplace(key, shelfcell<V>{
-                                               .payload = std::move(value),
-                                               .x = r.cursor_x,
-                                               .y = r.y,
-                                               .w = w,
-                                               .h = h,
-                                           });
+          auto [it, _] =
+              map_.emplace(key, shelfcell<V>{
+                                    .payload = std::move(value),
+                                    .shelf_index = static_cast<size_t>(&s - shelves_.data()),
+                                    .x = r.cursor_x,
+                                    .y = r.y,
+                                    .w = w,
+                                    .h = h,
+                                });
           r.cursor_x += w + padding;
           return &it->second;
         }
       }
       if (s.cursor_y + h + padding <= height_) {
         s.rows.push_back({.y = s.cursor_y, .h = h, .cursor_x = w + padding});
-        auto [it, _] = map_.emplace(key, shelfcell<V>{
-                                             .payload = std::move(value),
-                                             .x = 0,
-                                             .y = s.cursor_y,
-                                             .w = w,
-                                             .h = h,
-                                         });
+        auto [it, _] =
+            map_.emplace(key, shelfcell<V>{
+                                  .payload = std::move(value),
+                                  .shelf_index = static_cast<size_t>(&s - shelves_.data()),
+                                  .x = 0,
+                                  .y = s.cursor_y,
+                                  .w = w,
+                                  .h = h,
+                              });
         s.cursor_y += h + padding;
         return &it->second;
       }

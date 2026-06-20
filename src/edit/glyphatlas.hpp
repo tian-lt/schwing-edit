@@ -14,6 +14,15 @@ struct glyphuv {
   float v;
   float w;
   float h;
+  float layer;
+};
+struct glyphext {
+  float left;
+  float top;
+};
+struct glyphrecord {
+  glyphuv uv;
+  glyphext ext;
 };
 
 class glyphatlas {
@@ -29,12 +38,13 @@ class glyphatlas {
 
  public:
   explicit glyphatlas(unsigned width, unsigned height);
-  std::optional<glyphuv> try_get(FT_Face face, hb_codepoint_t codepoint) const;
-  glyphuv set(FT_Face face, hb_codepoint_t codepoint);
+  std::optional<glyphrecord> try_get(FT_Face face, hb_codepoint_t codepoint) const;
+  glyphrecord set(FT_Face face, hb_codepoint_t codepoint);
+  bool try_bind_gl(const unique_gl_program& program) const;
 
  private:
   unique_gl_texture texarr_;
-  shelfset<shelfkey, int, shelfkey_hash> shelves_;
+  shelfset<shelfkey, glyphext, shelfkey_hash> shelves_;
   unsigned width_ = 0;
   unsigned height_ = 0;
 };

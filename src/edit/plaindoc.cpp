@@ -18,16 +18,18 @@ using quad = std::array<quad_vertex, 4>;
 struct glyph {
   hb_glyph_info_t* info = nullptr;
   hb_glyph_position_t* pos = nullptr;
-  FT_GlyphSlot slot = nullptr;
+  glyphrecord value;
 };
 
-quad make_quad(float x0, float y0, float x1, float y1, float u, float v) {
-  // TODO: calculate u,v based on glyph metrics
+quad make_quad(float x0, float y0, float x1, float y1, const glyphuv& uv) {
+  float u0 = uv.u, v0 = uv.v;
+  float u1 = uv.u + uv.w, v1 = uv.v + uv.h;
+  float layer = uv.layer;
   return {
-      quad_vertex{x0, y0, u, v},
-      quad_vertex{x1, y0, u, v},
-      quad_vertex{x0, y1, u, v},
-      quad_vertex{x1, y1, u, v},
+      quad_vertex{x0, y0, u0, v0, layer},
+      quad_vertex{x1, y0, u1, v0, layer},
+      quad_vertex{x0, y1, u0, v1, layer},
+      quad_vertex{x1, y1, u1, v1, layer},
   };
 }
 
@@ -49,10 +51,10 @@ size_t mock_quads(quad_vertex* dst, double t) {
       float v0 = (float)(0.0f + 0.1f * std::cos(t + j * 0.05f));
       float u1 = u0 + 0.25f, v1 = v0 + 0.25f;
 
-      dst[count * 4 + 0] = {x0, y0, u0, v0};
-      dst[count * 4 + 1] = {x1, y0, u1, v0};
-      dst[count * 4 + 2] = {x0, y1, u0, v1};
-      dst[count * 4 + 3] = {x1, y1, u1, v1};
+      dst[count * 4 + 0] = {x0, y0, u0, v0, 0};
+      dst[count * 4 + 1] = {x1, y0, u1, v0, 0};
+      dst[count * 4 + 2] = {x0, y1, u0, v1, 0};
+      dst[count * 4 + 3] = {x1, y1, u1, v1, 0};
       ++count;
       if (count >= 512) return count;
     }
@@ -60,28 +62,6 @@ size_t mock_quads(quad_vertex* dst, double t) {
   return count;
 }
 
-static GLuint mock_atlas() {
-  const int W = 128, H = 128;
-  std::vector<uint8_t> px(W * H * 4);
-  for (int y = 0; y < H; ++y)
-    for (int x = 0; x < W; ++x) {
-      bool c = ((x / 16) ^ (y / 16)) & 1;
-      uint8_t v = c ? 230 : 40;
-      px[(y * W + x) * 4 + 0] = v;
-      px[(y * W + x) * 4 + 1] = (uint8_t)(x * 2);
-      px[(y * W + x) * 4 + 2] = (uint8_t)(y * 2);
-      px[(y * W + x) * 4 + 3] = 255;
-    }
-  GLuint tex = 0;
-  glGenTextures(1, &tex);
-  glBindTexture(GL_TEXTURE_2D, tex);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  return tex;
-}
 }  // namespace
 
 // ===--------------------
@@ -128,10 +108,9 @@ struct host::impl {
     FT_Face face = self->doc->fonts_.front().ftface();
     for (unsigned i = 0; i < glyph_count; ++i) {
       auto& info = glyph_info[i];
-      if (auto uv = self->atlas_->try_get(face, info.codepoint); uv.has_value()) {
-        (void)uv;
-      } else {
-        if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT | FT_LOAD_COLOR)) {
+      auto g = self->atlas_->try_get(face, info.codepoint);
+      if (!g.has_value()) {
+        if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
           // TODO: log error
           continue;
         }
@@ -139,9 +118,9 @@ struct host::impl {
           // TODO: log error
           continue;
         }
-        self->atlas_->set(face, info.codepoint);
+        g.emplace(self->atlas_->set(face, info.codepoint));
       }
-      co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .slot = face->glyph};
+      co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .value = *g};
     }
   }
   static std::generator<quad> layout(host* self) {
@@ -154,11 +133,11 @@ struct host::impl {
         float yadv = g.pos->y_advance / 64.0f;
         float ox = penx + xoff;
         float oy = peny + yoff;
-        float x0 = ox + (float)g.slot->bitmap_left;
-        float y0 = oy - (float)g.slot->bitmap_top;
-        float x1 = x0 + (float)g.slot->bitmap.width;
-        float y1 = y0 + (float)g.slot->bitmap.rows;
-        co_yield make_quad(x0, y0, x1, y1, 0.0f, 0.0f);
+        float x0 = ox + g.value.ext.left;
+        float y0 = oy - g.value.ext.top;
+        float x1 = x0 + g.value.uv.w;
+        float y1 = y0 + g.value.uv.h;
+        co_yield make_quad(x0, y0, x1, y1, g.value.uv);
         penx += xadv;
         peny += yadv;
       }
@@ -166,16 +145,10 @@ struct host::impl {
   }
 };
 
-static GLint locvp;
-static GLint locatlas;
-static GLint tex;
-
 void host::initialize_graphics() {
   std::array<float, 9> vertices = {0.0f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f};
   glprog_ = details::create_gl_program();
-  locatlas = glGetUniformLocation(glprog_.get(), "uAtlas");
-  locvp = glGetUniformLocation(glprog_.get(), "uViewport");
-  tex = mock_atlas();
+  loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");
   streamer_.emplace();
   atlas_.emplace(512, 512);
   doc->fonts_.emplace_back(doc->fontpath_, doc->fontsize_, dpi);
@@ -191,10 +164,10 @@ void host::render(rect /*rc*/) {
     ++quad_count;
   }
   glUseProgram(glprog_.get());
-  glUniform2f(locvp, (float)viewport.w, (float)viewport.h);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, tex);
-  glUniform1i(locatlas, 0);
+  glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
+  atlas_->try_bind_gl(glprog_);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   streamer_->end(quad_count);
 }
 void host::insert_char(std::string_view u8char) {

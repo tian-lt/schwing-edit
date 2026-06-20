@@ -30,11 +30,10 @@ unique_gl_program create_gl_program() {
   const char* vs_source = R"(
 #version 330 core
 layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec2 aUV;
+layout (location = 1) in vec3 aUV;
 uniform vec2 uViewport;
-out vec2 vUV;
+out vec3 vUV;
 void main() {
-  // pixel-space -> clip-space
   vec2 ndc = (aPos / uViewport) * 2.0 - 1.0;
   ndc.y = -ndc.y;
   gl_Position = vec4(ndc, 0.0, 1.0);
@@ -43,11 +42,14 @@ void main() {
 )";
   const char* fs_source = R"(
 #version 330 core
-in vec2 vUV;
-uniform sampler2D uAtlas;
+in vec3 vUV;
+uniform sampler2DArray uAtlas;
+uniform vec2 uAtlasSize;
 out vec4 oColor;
 void main() {
-  oColor = texture(uAtlas, vUV);
+  vec2 normUV = vUV.xy / uAtlasSize;
+  float alpha = texture(uAtlas, vec3(normUV, vUV.z)).r;
+  oColor = vec4(0.0, 0.0, 0.0, alpha);
 }
 )";
 

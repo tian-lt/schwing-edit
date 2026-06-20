@@ -51,7 +51,7 @@ glstreamer::glstreamer() {
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(quad_vertex),
                           (void*)offsetof(quad_vertex, x));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(quad_vertex),
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(quad_vertex),
                           (void*)offsetof(quad_vertex, u));
   }
   glBindVertexArray(0);

@@ -49,6 +49,7 @@ class host {
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
   std::optional<glyphatlas> atlas_;
+  GLint loc_viewport_;
 };
 
 class plaindoc {

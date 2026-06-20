@@ -147,10 +147,6 @@ class Sedit : public swg::host {
     doc = &doc_;
     dpi = GetDpiForWindow(hwnd_);
     double ratio = dpi / 96.0;
-    caretPosX_ = 4 * ratio;
-    caretPosY_ = 2 * ratio;
-    caretWidth_ = 1 * ratio;
-    caretHeight_ = 24 * ratio;
     InitializeGraphics();
   }
 
@@ -198,14 +194,10 @@ class Sedit : public swg::host {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
       if (*res == "\r" || *res == "\n") {
         linefeed();
-        caretPosX_ = 4 * ratio;
-        caretPosY_ += 24 * ratio;
       } else if (*res == "\b") {
         erase_char();
-        caretPosX_ -= 4 * ratio;
       } else {
         insert_char(*res);
-        caretPosX_ += 4 * ratio;
       }
 #ifdef _DEBUG
       auto s = doc_.get(0, doc_.length());
@@ -215,7 +207,6 @@ class Sedit : public swg::host {
                           static_cast<int>(wstr.size()));
       OutputDebugStringW(std::format(L"{}\n", wstr).c_str());
 #endif
-      SetCaretPos(caretPosX_, caretPosY_);
     }
     return 0;
   }
@@ -225,17 +216,8 @@ class Sedit : public swg::host {
     glViewport(0, 0, width, height);
     return 0;
   }
-  LRESULT OnSetFocus() {
-    CreateCaret(hwnd_, nullptr, caretWidth_, caretHeight_);
-    SetCaretPos(caretPosX_, caretPosY_);
-    ShowCaret(hwnd_);
-    return 0;
-  }
-  LRESULT OnKillFocus() {
-    HideCaret(hwnd_);
-    DestroyCaret();
-    return 0;
-  }
+  LRESULT OnSetFocus() { return 0; }
+  LRESULT OnKillFocus() { return 0; }
   std::optional<std::string> DigestChar(wchar_t uchar) {
     constexpr int HI = 0, LO = 1;
     if (IS_HIGH_SURROGATE(uchar)) {
@@ -382,10 +364,6 @@ class Sedit : public swg::host {
   unique_hglrc glrc_;
   swg::plaindoc doc_;
   wchar_t surrogate_[2] = {};
-  int caretPosX_ = 0;
-  int caretPosY_ = 0;
-  int caretWidth_ = 0;
-  int caretHeight_ = 0;
 };
 
 const ATOM SeditWndInit = Sedit::Initialize();

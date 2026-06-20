@@ -7,7 +7,7 @@ namespace swg {
 
 struct quad_vertex {
   float x, y;
-  float u, v;
+  float u, v, layer;
 };
 
 class glstreamer {

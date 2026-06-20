@@ -95,7 +95,7 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self) {
-    float penx = 0, peny = (float)self->doc->fontsize_ * self->dpi / 96.f;
+    float penx = 1.f, peny = (float)self->doc->fontsize_ * self->dpi / 96.f;
     if (self->doc->ltable_.size() > 0) {
       for (const glyph& g : shape_line(self, 0)) {
         float xoff = g.pos->x_offset / 64.0f;
@@ -104,8 +104,8 @@ struct host::impl {
         float yadv = g.pos->y_advance / 64.0f;
         float ox = penx + xoff;
         float oy = peny + yoff;
-        int32_t x0 = (int32_t)std::floor(ox) + g.value.ext.left;
-        int32_t y0 = (int32_t)std::floor(oy) - g.value.ext.top;
+        int32_t x0 = std::lround(ox + g.value.ext.left);
+        int32_t y0 = std::lround(oy - g.value.ext.top);
         int32_t x1 = x0 + g.value.uv.w;
         int32_t y1 = y0 + g.value.uv.h;
         co_yield make_quad(x0, y0, x1, y1, g.value.uv);

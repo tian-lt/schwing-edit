@@ -95,9 +95,11 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self) {
-    float penx = 1.f, peny = (float)self->doc->fontsize_ * self->dpi / 96.f;
-    if (self->doc->ltable_.size() > 0) {
-      for (const glyph& g : shape_line(self, 0)) {
+    float peny = 0.f;
+    for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
+      float penx = 1.f;
+      peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
+      for (const glyph& g : shape_line(self, l)) {
         float xoff = g.pos->x_offset / 64.0f;
         float yoff = g.pos->y_offset / 64.0f;
         float xadv = g.pos->x_advance / 64.0f;

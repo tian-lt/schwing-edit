@@ -4,6 +4,7 @@
   "dependencies": [
     "freetype",
     "harfbuzz",
+    "icu",
     "glad",
     "gtest",
     {

@@ -21,6 +21,11 @@ struct linetable_erase_tests_run_Test;
 struct linetable_erase_matches_rebuild_param_equivalent_Test;
 struct linetable_tests_erase_to_empty_Test;
 struct linetable_tests_erase_clamps_past_end_Test;
+struct linetable_tests_insert_erase_insert_at_end_of_terminated_line_Test;
+struct linetable_tests_insert_erase_insert_multiple_cycles_Test;
+struct linetable_tests_insert_erase_at_various_positions_Test;
+struct linetable_tests_insert_erase_insert_matches_rebuild_Test;
+struct linetable_tests_erase_tail_then_insert_Test;
 };  // namespace ut::linetable_ut
 #endif  // SWGUT
 
@@ -37,6 +42,11 @@ class linetable {
   FRIEND_TEST(ut::linetable_ut::linetable_erase_matches_rebuild_param, equivalent);
   FRIEND_TEST(ut::linetable_ut::linetable_tests, erase_to_empty);
   FRIEND_TEST(ut::linetable_ut::linetable_tests, erase_clamps_past_end);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_erase_insert_at_end_of_terminated_line);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_erase_insert_multiple_cycles);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_erase_at_various_positions);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, insert_erase_insert_matches_rebuild);
+  FRIEND_TEST(ut::linetable_ut::linetable_tests, erase_tail_then_insert);
 #endif  // SWGUT
 
   struct line {

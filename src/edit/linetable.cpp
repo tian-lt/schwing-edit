@@ -55,7 +55,13 @@ bool linetable::rebuild(const piecetable& ptable, eol eol) {
     push_line(pending_cr_pos + 1);
   }
   if (line_beg < total_len) {
+    // Trailing content without a terminator.
     push_line(total_len);
+  } else if (total_len > 0) {
+    // Document ends with a terminator; push a trailing empty line so that subsequent
+    // inserts at the document end correctly target the new (empty) line rather than
+    // extending the previous terminated line.
+    linelist_.push_back(line{.beg = total_len, .length = 0});
   }
   // mixed EOLs iff more than one distinct terminator kind was observed
   return (eol_mask & (eol_mask - 1)) != 0;
@@ -180,10 +186,16 @@ void linetable::erase(size_t pos, size_t length) {
   const auto rm_end = linelist_.begin() + tail_idx + 1;  // half-open
 
   if (prefix_len + suffix_len == 0) {
-    // The cut left an empty line at the very end of the document. The previous line's
-    // terminator now ends the document, so the empty trailing line is dropped (rebuild()
-    // never emits one). Nothing follows it, so no position fix-up is required.
+    // The erased content consumed entire lines from first through tail.  With the
+    // trailing-empty-line invariant, this only happens when the erase reaches the
+    // document end.  If content remains before the erased range, that content ends
+    // with a terminator (it previously had a following line), so we must maintain a
+    // trailing empty line.
     linelist_.erase(rm_begin, rm_end);
+    if (!linelist_.empty()) {
+      const auto& last = linelist_.back();
+      linelist_.push_back(line{.beg = last.beg + last.length, .length = 0});
+    }
     return;
   }
 

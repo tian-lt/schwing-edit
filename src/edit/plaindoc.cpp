@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <generator>
+#include <ranges>
 // gl
 #include <glad/glad.h>
 // swg
@@ -70,6 +71,14 @@ struct host::impl {
     auto line = self->doc->ltable_[line_idx];
     unique_hb_buffer hbbuf{hb_buffer_create()};  // TODO: reuse buffers
     auto u8data = self->doc->ptable_.get(line.beg, line.length);
+    auto eolCount =
+        std::ranges::distance(u8data | std::views::reverse | std::views::take_while([](char ch) {
+                                return ch == '\r' || ch == '\n';
+                              }));
+    u8data.resize(u8data.size() - eolCount);
+    if (u8data.empty()) {
+      co_return;
+    }
     hb_buffer_add_utf8(hbbuf.get(), u8data.data(), (int)u8data.length(), 0, (int)u8data.length());
     hb_buffer_guess_segment_properties(hbbuf.get());
     hb_shape(self->doc->fonts_.front().hbfont(), hbbuf.get(), nullptr, 0);

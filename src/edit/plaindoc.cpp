@@ -5,6 +5,8 @@
 #include <cmath>
 #include <generator>
 #include <ranges>
+#include <string>
+#include <string_view>
 // gl
 #include <glad/glad.h>
 // swg
@@ -119,9 +121,12 @@ struct host::impl {
         int32_t y0 = std::lround(oy - g.value.ext.top);
         int32_t x1 = x0 + g.value.uv.w;
         int32_t y1 = y0 + g.value.uv.h;
-        co_yield make_quad(x0, y0, x1, y1, g.value.uv);
         penx += xadv;
         peny += yadv;
+        if (x1 - x0 == 0 && y1 - y0 == 0) {
+          continue;
+        }
+        co_yield make_quad(x0, y0, x1, y1, g.value.uv);
       }
     }
   }

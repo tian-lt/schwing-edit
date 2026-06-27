@@ -21,7 +21,8 @@
 namespace {
 
 const double default_font_size = 12.0;
-const std::string default_font_path = "C:\\Windows\\Fonts\\Arial.ttf";
+const std::string default_font_path = R"(C:\Windows\Fonts\Arial.ttf)";
+//const std::string default_font_path = R"(C:\Windows\Fonts\msyh.ttc)";
 const wchar_t wgl_dummy_window_class[] = L"SEditWglDummyWindowClass";
 
 PIXELFORMATDESCRIPTOR OpenGLPixelFormatDescriptor() {

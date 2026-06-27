@@ -1,5 +1,6 @@
 // std
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <optional>
@@ -143,8 +144,10 @@ unique_wgl_bootstrap_context CreateWglBootstrapContext() {
 
 class Sedit : public swg::host {
  public:
-  Sedit(HWND hwnd, std::string fontpath, double fontsize)
-      : hwnd_(hwnd), doc_(this, std::move(fontpath), fontsize, swg::eol::crlf) {
+  Sedit(HWND hwnd, std::string fontpath, double fontsize,
+        std::optional<std::filesystem::path> filepath = std::nullopt)
+      : hwnd_(hwnd),
+        doc_(this, std::move(fontpath), fontsize, swg::eol::crlf, std::move(filepath)) {
     doc = &doc_;
     dpi = GetDpiForWindow(hwnd_);
     double ratio = dpi / 96.0;

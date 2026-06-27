@@ -45,21 +45,18 @@ quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv
 
 // ===--------------------
 // plaindoc implementation
-plaindoc::plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
-    : ltable_(eol),
+plaindoc::plaindoc(host* host, std::string fontpath, double fontsize, eol eol,
+                   std::optional<std::filesystem::path> filepath)
+    : ptable_(filepath ? piecetable::from_file(*filepath) : piecetable{}),
+      ltable_(eol),
       host_(host),
       fontpath_(fontpath),
       hbbuf_(hb_buffer_create()),
       fontsize_(fontsize),
-      eol_(eol) {}
-void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol) {
-  if (new_fontpath.has_value()) {
-    fontpath_ = *new_fontpath;
+      eol_(eol) {
+  if (filepath) {
+    mixeol_ = ltable_.rebuild(ptable_, eol);
   }
-  if (new_eol.has_value()) {
-    mixeol_ = ltable_.rebuild(ptable_, *new_eol);
-  }
-  hbbuf_ = unique_hb_buffer{hb_buffer_create()};
 }
 void plaindoc::insert(size_t pos, std::string_view data) {
   ptable_.insert(pos, data);

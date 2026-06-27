@@ -1,6 +1,7 @@
 #pragma once
 // std
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -58,8 +59,8 @@ class plaindoc {
   friend class host;
 
  public:
-  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol);
-  void reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol);
+  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol,
+                    std::optional<std::filesystem::path> filepath = std::nullopt);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
   std::string get(size_t pos, size_t length) const { return ptable_.get(pos, length); }

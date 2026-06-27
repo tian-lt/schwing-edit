@@ -13,6 +13,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#ifdef NOMINMAX
+#undef NOMINMAX
+#endif
+#ifdef WIN32_LEAN_AND_MEAN
+#undef WIN32_LEAN_AND_MEAN
+#endif
 #else
 #error "piecetable::from_file is currently Win32 only"
 #endif

@@ -143,4 +143,38 @@ TEST(itemizer_tests, common_only_input_is_single_run) {
   EXPECT_EQ(runs[0].pos_length, text.length());
 }
 
+TEST(itemizer_tests, flush_carries_script_to_following_common) {
+  // Splitting "世界；世界" with flush() right before the fullwidth ； must not
+  // orphan the COMMON ； into its own run: every run stays HAN so the punctuation
+  // is shaped with the CJK font instead of rendering as tofu.
+  const auto bytes = as_bytes(u8"世界；世界");
+  std::vector<scriptrun> runs;
+  itemizer itz{[&](scriptrun run) { runs.push_back(run); }};
+  itz.feed(bytes.substr(0, 6));  // "世界"
+  itz.flush();
+  itz.feed(bytes.substr(6));  // "；世界"
+  itz.finish();
+  ASSERT_FALSE(runs.empty());
+  for (const auto& r : runs) {
+    EXPECT_EQ(r.script_code, USCRIPT_HAN);
+  }
+  expect_contiguous(runs, bytes.length(), 5);
+}
+
+TEST(itemizer_tests, finish_carries_script_across_separator) {
+  // A separator boundary (here a tab) must also carry script context, so a lone
+  // ； following the tab is still resolved as HAN rather than orphaned COMMON.
+  const auto bytes = as_bytes(u8"世界\t；");
+  std::vector<scriptrun> runs;
+  itemizer itz{[&](scriptrun run) { runs.push_back(run); }};
+  itz.feed(bytes.substr(0, 7));  // "世界\t"
+  itz.finish();
+  itz.feed(bytes.substr(7));  // "；"
+  itz.finish();
+  ASSERT_FALSE(runs.empty());
+  for (const auto& r : runs) {
+    EXPECT_EQ(r.script_code, USCRIPT_HAN);
+  }
+}
+
 }  // namespace swg::ut

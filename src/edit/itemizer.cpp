@@ -32,6 +32,10 @@ struct itemizer::impl {
       sc = USCRIPT_UNKNOWN;
     }
     if (!self->run_.has_value()) {
+      if ((sc == USCRIPT_COMMON || sc == USCRIPT_INHERITED) && self->carry_.has_value()) {
+        sc = *self->carry_;
+      }
+      self->carry_.reset();
       self->run_.emplace(scriptrun{byte_offset, bytes, pos_offset, 1, sc});
       return;
     }
@@ -88,7 +92,20 @@ void itemizer::feed(std::string_view u8str) {
   pending_.erase(0, i);
 }
 
+void itemizer::flush() {
+  // split a long run for early rendering while preserving its script as context for the next run
+  if (run_.has_value() && run_->script_code != USCRIPT_COMMON &&
+      run_->script_code != USCRIPT_INHERITED) {
+    carry_ = run_->script_code;
+    impl::flush(this);
+  }
+}
+
 void itemizer::finish() {
+  if (run_.has_value() && run_->script_code != USCRIPT_COMMON &&
+      run_->script_code != USCRIPT_INHERITED) {
+    carry_ = run_->script_code;
+  }
   impl::flush(this);
   pending_.clear();
   run_.reset();

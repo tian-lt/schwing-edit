@@ -26,12 +26,14 @@ class itemizer {
 
   explicit itemizer(sink_type sink) : sink_(std::move(sink)) {}
   void feed(std::string_view u8str);
+  void flush();
   void finish();
 
  private:
   sink_type sink_;
   std::string pending_;
   std::optional<scriptrun> run_;
+  std::optional<UScriptCode> carry_;
   size_t byte_offset_ = 0;
   size_t pos_offset_ = 0;
 };

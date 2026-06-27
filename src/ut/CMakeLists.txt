@@ -1,4 +1,5 @@
 add_executable(ut
+  itemizer_tests.cpp
   linetable_tests.cpp
   piecetable_tests.cpp
   shelf_tests.cpp

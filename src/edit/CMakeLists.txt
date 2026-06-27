@@ -2,6 +2,7 @@ add_library(edit
   fontengine.cpp
   glstreamer.cpp
   glyphatlas.cpp
+  itemizer.cpp
   linetable.cpp
   piecetable.cpp
   plaindoc.cpp
@@ -15,9 +16,11 @@ find_package(harfbuzz CONFIG REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(glad CONFIG REQUIRED)
+find_package(ICU REQUIRED COMPONENTS uc)
 target_link_libraries(edit PUBLIC
   Freetype::Freetype
   harfbuzz::harfbuzz
+  ICU::uc
   OpenGL::GL
   glad::glad
 )

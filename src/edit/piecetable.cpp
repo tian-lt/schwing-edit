@@ -2,11 +2,49 @@
 #include <cassert>
 #include <cstring>
 #include <stdexcept>
+#include <system_error>
+
+// platform
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#error "piecetable::from_file is currently Win32 only"
+#endif
+
+// deps
+#include <mio/mmap.hpp>
 
 // swg
 #include "piecetable.hpp"
 
 namespace swg {
+
+namespace {
+struct mapped_file {
+#ifdef _WIN32
+  HANDLE handle = INVALID_HANDLE_VALUE;
+#else
+#error "piecetable::from_file is currently Win32 only"
+#endif
+  mio::mmap_source mmap;
+  ~mapped_file() {
+    mmap.unmap();
+#ifdef _WIN32
+    if (handle != INVALID_HANDLE_VALUE) {
+      ::CloseHandle(handle);
+    }
+#else
+#error "piecetable::from_file is currently Win32 only"
+#endif
+  }
+};
+}  // namespace
 
 struct piecetable::impl {
   static auto find_piece(const piecetable* self, size_t pos) {
@@ -51,6 +89,37 @@ struct piecetable::impl {
     }
   }
 };
+
+piecetable piecetable::from_file(const std::filesystem::path& path) {
+  piecetable table;
+  auto owner = std::make_shared<mapped_file>();
+#ifdef _WIN32
+  // FILE_SHARE_READ only: other processes may read but cannot write or delete the file.
+  owner->handle = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (owner->handle == INVALID_HANDLE_VALUE) {
+    throw std::system_error{static_cast<int>(::GetLastError()), std::system_category(),
+                            "failed to open file"};
+  }
+#else
+#error "piecetable::from_file is currently Win32 only"
+#endif
+  if (std::filesystem::file_size(path) > 0) {
+    std::error_code ec;
+#ifdef _WIN32
+    owner->mmap.map(owner->handle, 0, mio::map_entire_file, ec);
+#else
+#error "piecetable::from_file is currently Win32 only"
+#endif
+    if (ec) {
+      throw std::system_error{ec, "failed to mmap file"};
+    }
+    table.initbuf_ = std::string_view{owner->mmap.data(), owner->mmap.size()};
+    table.piecelist_ = {piece{.offset = 0, .length = owner->mmap.size(), .is_original = true}};
+  }
+  table.mmap_ = std::move(owner);
+  return table;
+}
 
 size_t piecetable::length() const {
   size_t len = 0;

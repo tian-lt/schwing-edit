@@ -1,5 +1,7 @@
 #pragma once
 #include <cstddef>
+#include <filesystem>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -15,6 +17,7 @@ class piecetable {
   explicit piecetable(std::string_view initbuf) noexcept
       : initbuf_(initbuf),
         piecelist_({piece{.offset = 0, .length = initbuf.length(), .is_original = true}}) {}
+  static piecetable from_file(const std::filesystem::path& path);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
   std::string get(size_t pos, size_t length) const;
@@ -30,6 +33,7 @@ class piecetable {
 
  private:
   std::vector<piece> piecelist_;
+  std::shared_ptr<void> mmap_;
   std::string_view initbuf_;
   std::string addbuf_;
 };

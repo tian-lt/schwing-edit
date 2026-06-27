@@ -1,4 +1,7 @@
 // std
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <variant>
@@ -325,5 +328,54 @@ INSTANTIATE_TEST_CASE_P(
                   .get_pos = 4,
                   .get_length = 1,
                   .test_ops = {insert_op{.pos = 3, .data = "XY"}}}));
+
+namespace {
+struct scoped_tempfile {
+  std::filesystem::path path;
+  explicit scoped_tempfile(std::string_view content) {
+    path = std::filesystem::temp_directory_path() /
+           ("swg_ptable_" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
+            "_" + std::to_string(reinterpret_cast<uintptr_t>(this)) + ".tmp");
+    std::ofstream out{path, std::ios::binary};
+    out.write(content.data(), static_cast<std::streamsize>(content.size()));
+  }
+  ~scoped_tempfile() {
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+  }
+};
+}  // namespace
+
+TEST(piecetable_mmap_tests, reads_mapped_file) {
+  scoped_tempfile file{"hello mmap world"};
+  auto table = piecetable::from_file(file.path);
+  EXPECT_EQ(table.length(), 16u);
+  EXPECT_EQ(table.get(0, table.length()), "hello mmap world");
+  EXPECT_EQ(table.get(6, 4), "mmap");
+}
+
+TEST(piecetable_mmap_tests, edits_mapped_file) {
+  scoped_tempfile file{"hello world"};
+  auto table = piecetable::from_file(file.path);
+  table.insert(5, " brave");
+  table.erase(0, 6);
+  EXPECT_EQ(table.get(0, table.length()), "brave world");
+}
+
+TEST(piecetable_mmap_tests, empty_file_is_empty_table) {
+  scoped_tempfile file{""};
+  auto table = piecetable::from_file(file.path);
+  EXPECT_EQ(table.length(), 0u);
+  EXPECT_EQ(table.get(0, 0), "");
+}
+
+#ifdef _WIN32
+TEST(piecetable_mmap_tests, denies_external_writers) {
+  scoped_tempfile file{"locked content"};
+  auto table = piecetable::from_file(file.path);
+  std::ofstream writer{file.path, std::ios::binary | std::ios::out};
+  EXPECT_FALSE(writer.is_open());
+}
+#endif
 
 }  // namespace swg::ut::piecetable_ut

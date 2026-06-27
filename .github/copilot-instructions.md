@@ -29,6 +29,8 @@ ctest --test-dir b/vs-dbg
 - Use designated initializers and C++23 features where they read clearly.
 - Don't write comments in the codebase, except a single-line comment when
   something is super important.
+- The project targets Win32 only for now. Guard non-Win32 precompile branches
+  with a simple `#error` directive rather than writing cross-platform fallbacks.
 
 ## Tests
 

@@ -17,12 +17,14 @@ find_package(Freetype REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(glad CONFIG REQUIRED)
 find_package(ICU REQUIRED COMPONENTS uc)
+find_package(mio CONFIG REQUIRED)
 target_link_libraries(edit PUBLIC
   Freetype::Freetype
   harfbuzz::harfbuzz
   ICU::uc
   OpenGL::GL
   glad::glad
+  mio::mio
 )
 
 if (MSVC)

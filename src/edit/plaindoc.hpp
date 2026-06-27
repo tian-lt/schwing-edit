@@ -1,6 +1,7 @@
 #pragma once
 // std
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -8,6 +9,7 @@
 #include "fontengine.hpp"
 #include "glstreamer.hpp"
 #include "glyphatlas.hpp"
+#include "itemizer.hpp"
 #include "linetable.hpp"
 #include "piecetable.hpp"
 #include "resource.hpp"
@@ -68,7 +70,7 @@ class plaindoc {
   linetable ltable_;
   host* host_;
   std::string fontpath_;
-  std::vector<fontengine> fonts_;
+  std::map<UScriptCode, fontengine> fonts_;
   double fontsize_;
   eol eol_;
   bool mixeol_ = false;

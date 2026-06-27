@@ -1,6 +1,8 @@
 #pragma once
 // std
 #include <string>
+// icu
+#include <unicode/uscript.h>
 // swg
 #include "resource.hpp"
 
@@ -18,5 +20,7 @@ class fontengine {
   unique_ft_face ftface_;
   unique_hb_font hbfont_;
 };
+
+std::string font_for_script(UScriptCode script, const std::string& fallback);
 
 }  // namespace swg

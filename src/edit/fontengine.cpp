@@ -1,5 +1,6 @@
 // std
 #include <cassert>
+#include <filesystem>
 #include <stdexcept>
 // deps
 #include <freetype/freetype.h>
@@ -9,6 +10,53 @@
 #include "fontengine.hpp"
 
 namespace swg {
+
+namespace {
+
+const char* default_font_file(UScriptCode script) {
+  switch (script) {
+    case USCRIPT_HAN:
+    case USCRIPT_BOPOMOFO:
+      return "msyh.ttc";
+    case USCRIPT_HIRAGANA:
+    case USCRIPT_KATAKANA:
+      return "msgothic.ttc";
+    case USCRIPT_HANGUL:
+      return "malgun.ttf";
+    case USCRIPT_ARABIC:
+    case USCRIPT_HEBREW:
+      return "tahoma.ttf";
+    case USCRIPT_DEVANAGARI:
+    case USCRIPT_BENGALI:
+    case USCRIPT_GURMUKHI:
+    case USCRIPT_GUJARATI:
+    case USCRIPT_ORIYA:
+    case USCRIPT_TAMIL:
+    case USCRIPT_TELUGU:
+    case USCRIPT_KANNADA:
+    case USCRIPT_MALAYALAM:
+    case USCRIPT_SINHALA:
+      return "Nirmala.ttc";
+    case USCRIPT_THAI:
+    case USCRIPT_LAO:
+      return "LeelawUI.ttf";
+    case USCRIPT_ARMENIAN:
+    case USCRIPT_GEORGIAN:
+      return "sylfaen.ttf";
+    case USCRIPT_ETHIOPIC:
+    case USCRIPT_TIFINAGH:
+    case USCRIPT_VAI:
+    case USCRIPT_NKO:
+      return "ebrima.ttf";
+    case USCRIPT_CANADIAN_ABORIGINAL:
+    case USCRIPT_CHEROKEE:
+      return "gadugi.ttf";
+    default:
+      return nullptr;
+  }
+}
+
+}  // namespace
 
 struct fontengine::impl {
   static void reset(fontengine* self, const std::string& fontpath, double fontsize, int dpi) {
@@ -25,6 +73,23 @@ struct fontengine::impl {
 
 fontengine::fontengine(const std::string& fontpath, double fontsize, int dpi) {
   impl::reset(this, fontpath, fontsize, dpi);
+}
+
+std::string font_for_script(UScriptCode script, const std::string& fallback) {
+  const char* file = default_font_file(script);
+  if (file == nullptr) {
+    return fallback;
+  }
+#ifdef _WIN32
+  std::filesystem::path path = std::filesystem::path{R"(C:\Windows\Fonts)"} / file;
+#else
+#error "font_for_script: system font directory is only implemented for Windows."
+#endif
+  std::error_code ec;
+  if (!std::filesystem::exists(path, ec)) {
+    return fallback;
+  }
+  return path.string();
 }
 
 }  // namespace swg

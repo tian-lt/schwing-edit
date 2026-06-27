@@ -7,9 +7,13 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <vector>
+// icu
+#include <unicode/uscript.h>
 // gl
 #include <glad/glad.h>
 // swg
+#include "itemizer.hpp"
 #include "plaindoc.hpp"
 #include "shaders.hpp"
 
@@ -69,9 +73,17 @@ struct host::impl {
     // TODO: update underlying data
     self->on_invalidate({});
   }
+  static fontengine& select_font(host* self, UScriptCode script) {
+    auto& fonts = self->doc->fonts_;
+    auto it = fonts.find(script);
+    if (it == fonts.end()) {
+      std::string path = font_for_script(script, self->doc->fontpath_);
+      it = fonts.try_emplace(script, path, self->doc->fontsize_, self->dpi).first;
+    }
+    return it->second;
+  }
   static std::generator<glyph> shape_line(host* self, size_t line_idx) {
     auto line = self->doc->ltable_[line_idx];
-    unique_hb_buffer hbbuf{hb_buffer_create()};  // TODO: reuse buffers
     auto u8data = self->doc->ptable_.get(line.beg, line.length);
     auto eolCount =
         std::ranges::distance(u8data | std::views::reverse | std::views::take_while([](char ch) {
@@ -81,28 +93,45 @@ struct host::impl {
     if (u8data.empty()) {
       co_return;
     }
-    hb_buffer_add_utf8(hbbuf.get(), u8data.data(), (int)u8data.length(), 0, (int)u8data.length());
-    hb_buffer_guess_segment_properties(hbbuf.get());
-    hb_shape(self->doc->fonts_.front().hbfont(), hbbuf.get(), nullptr, 0);
-    unsigned glyph_count = hb_buffer_get_length(hbbuf.get());
-    hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(hbbuf.get(), nullptr);
-    hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(hbbuf.get(), nullptr);
-    FT_Face face = self->doc->fonts_.front().ftface();
-    for (unsigned i = 0; i < glyph_count; ++i) {
-      auto& info = glyph_info[i];
-      auto g = self->atlas_->try_get(face, info.codepoint);
-      if (!g.has_value()) {
-        if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
-          // TODO: log error
-          continue;
+    std::vector<scriptrun> runs;
+    itemizer itz{[&](scriptrun run) { runs.push_back(run); }};
+    itz.feed(u8data);
+    itz.finish();
+    unique_hb_buffer hbbuf{hb_buffer_create()};  // TODO: reuse buffers
+    for (const scriptrun& run : runs) {
+      fontengine& font = select_font(self, run.script_code);
+      hb_buffer_clear_contents(hbbuf.get());
+      // pass the whole line so harfbuzz keeps cross-run shaping context.
+      hb_buffer_add_utf8(hbbuf.get(), u8data.data(), (int)u8data.length(),
+                         (unsigned)run.byte_offset, (int)run.byte_length);
+      if (const char* tag = uscript_getShortName(run.script_code)) {
+        hb_script_t script = hb_script_from_string(tag, -1);
+        if (script != HB_SCRIPT_INVALID) {
+          hb_buffer_set_script(hbbuf.get(), script);
         }
-        if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {
-          // TODO: log error
-          continue;
-        }
-        g.emplace(self->atlas_->set(face, info.codepoint));
       }
-      co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .value = *g};
+      hb_buffer_guess_segment_properties(hbbuf.get());
+      hb_shape(font.hbfont(), hbbuf.get(), nullptr, 0);
+      unsigned glyph_count = hb_buffer_get_length(hbbuf.get());
+      hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(hbbuf.get(), nullptr);
+      hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(hbbuf.get(), nullptr);
+      FT_Face face = font.ftface();
+      for (unsigned i = 0; i < glyph_count; ++i) {
+        auto& info = glyph_info[i];
+        auto g = self->atlas_->try_get(face, info.codepoint);
+        if (!g.has_value()) {
+          if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
+            // TODO: log error
+            continue;
+          }
+          if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {
+            // TODO: log error
+            continue;
+          }
+          g.emplace(self->atlas_->set(face, info.codepoint));
+        }
+        co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .value = *g};
+      }
     }
   }
   static std::generator<quad> layout(host* self) {
@@ -138,7 +167,6 @@ void host::initialize_graphics() {
   loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");
   streamer_.emplace();
   atlas_.emplace(512, 512);
-  doc->fonts_.emplace_back(doc->fontpath_, doc->fontsize_, dpi);
 }
 
 void host::render(rect /*rc*/) {

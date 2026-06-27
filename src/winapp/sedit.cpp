@@ -22,7 +22,7 @@ namespace {
 
 const double default_font_size = 12.0;
 const std::string default_font_path = R"(C:\Windows\Fonts\Arial.ttf)";
-//const std::string default_font_path = R"(C:\Windows\Fonts\msyh.ttc)";
+// const std::string default_font_path = R"(C:\Windows\Fonts\msyh.ttc)";
 const wchar_t wgl_dummy_window_class[] = L"SEditWglDummyWindowClass";
 
 PIXELFORMATDESCRIPTOR OpenGLPixelFormatDescriptor() {
@@ -191,6 +191,12 @@ class Sedit : public swg::host {
     return 0;
   }
   LRESULT OnChar(wchar_t uchar) {
+    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    if (ctrl || alt) {
+      return 0;
+    }
+
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;
       if (*res == "\r" || *res == "\n") {

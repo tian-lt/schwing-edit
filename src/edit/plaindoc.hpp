@@ -71,6 +71,7 @@ class plaindoc {
   host* host_;
   std::string fontpath_;
   std::map<UScriptCode, fontengine> fonts_;
+  unique_hb_buffer hbbuf_;
   double fontsize_;
   eol eol_;
   bool mixeol_ = false;

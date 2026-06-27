@@ -116,4 +116,18 @@ void check_fterror(FT_Error error_code);
 void check_ptr(void* ptr, const char* message);
 inline void check_ptr(void* ptr) { check_ptr(ptr, ""); }
 
+template <class F>
+class scope_guard {
+ public:
+  explicit scope_guard(F f) : f_(std::move(f)) {}
+  ~scope_guard() { f_(); }
+  scope_guard(const scope_guard&) = delete;
+  scope_guard(scope_guard&&) noexcept = delete;
+  scope_guard& operator=(const scope_guard&) = delete;
+  scope_guard& operator=(scope_guard&&) = delete;
+
+ private:
+  F f_;
+};
+
 }  // namespace swg

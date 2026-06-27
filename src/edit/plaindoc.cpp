@@ -45,7 +45,12 @@ quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv
 // ===--------------------
 // plaindoc implementation
 plaindoc::plaindoc(host* host, std::string fontpath, double fontsize, eol eol)
-    : ltable_(eol), host_(host), fontpath_(fontpath), fontsize_(fontsize), eol_(eol) {}
+    : ltable_(eol),
+      host_(host),
+      fontpath_(fontpath),
+      hbbuf_(hb_buffer_create()),
+      fontsize_(fontsize),
+      eol_(eol) {}
 void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol> new_eol) {
   if (new_fontpath.has_value()) {
     fontpath_ = *new_fontpath;
@@ -53,6 +58,7 @@ void plaindoc::reset(std::optional<std::string> new_fontpath, std::optional<eol>
   if (new_eol.has_value()) {
     mixeol_ = ltable_.rebuild(ptable_, *new_eol);
   }
+  hbbuf_ = unique_hb_buffer{hb_buffer_create()};
 }
 void plaindoc::insert(size_t pos, std::string_view data) {
   ptable_.insert(pos, data);
@@ -93,28 +99,29 @@ struct host::impl {
     if (u8data.empty()) {
       co_return;
     }
+
     std::vector<scriptrun> runs;
     itemizer itz{[&](scriptrun run) { runs.push_back(run); }};
     itz.feed(u8data);
     itz.finish();
-    unique_hb_buffer hbbuf{hb_buffer_create()};  // TODO: reuse buffers
+    auto hbbuf = self->doc->hbbuf_.get();
+    scope_guard guard{[hbbuf] { hb_buffer_reset(hbbuf); }};
     for (const scriptrun& run : runs) {
       fontengine& font = select_font(self, run.script_code);
-      hb_buffer_clear_contents(hbbuf.get());
-      // pass the whole line so harfbuzz keeps cross-run shaping context.
-      hb_buffer_add_utf8(hbbuf.get(), u8data.data(), (int)u8data.length(),
-                         (unsigned)run.byte_offset, (int)run.byte_length);
+      hb_buffer_clear_contents(hbbuf);
+      hb_buffer_add_utf8(hbbuf, u8data.data(), (int)u8data.length(), (unsigned)run.byte_offset,
+                         (int)run.byte_length);
       if (const char* tag = uscript_getShortName(run.script_code)) {
         hb_script_t script = hb_script_from_string(tag, -1);
         if (script != HB_SCRIPT_INVALID) {
-          hb_buffer_set_script(hbbuf.get(), script);
+          hb_buffer_set_script(hbbuf, script);
         }
       }
-      hb_buffer_guess_segment_properties(hbbuf.get());
-      hb_shape(font.hbfont(), hbbuf.get(), nullptr, 0);
-      unsigned glyph_count = hb_buffer_get_length(hbbuf.get());
-      hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(hbbuf.get(), nullptr);
-      hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(hbbuf.get(), nullptr);
+      hb_buffer_guess_segment_properties(hbbuf);
+      hb_shape(font.hbfont(), hbbuf, nullptr, 0);
+      unsigned glyph_count = hb_buffer_get_length(hbbuf);
+      hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(hbbuf, nullptr);
+      hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(hbbuf, nullptr);
       FT_Face face = font.ftface();
       for (unsigned i = 0; i < glyph_count; ++i) {
         auto& info = glyph_info[i];

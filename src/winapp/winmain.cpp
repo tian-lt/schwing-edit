@@ -1,6 +1,4 @@
 // windows
-#include <dwmapi.h>
-
 #include "win.hpp"
 // wil
 #include <wil/resource.h>
@@ -9,8 +7,6 @@
 #include "resource.hpp"
 // app
 #include "res.h"
-
-#pragma comment(lib, "Dwmapi.lib")
 
 namespace {
 static_assert(std::is_same_v<TCHAR, wchar_t>);
@@ -28,6 +24,7 @@ class MainWindow {
                                   LR_DEFAULTCOLOR),
         .hCursor = LoadCursor(nullptr, IDC_ARROW),
         .hbrBackground = CreateSolidBrush(RGB(0, 0, 0)),
+        .lpszMenuName = MAKEINTRESOURCE(IDR_MAINMENU),
         .lpszClassName = TEXT("MainWindowClass"),
         .hIconSm = (HICON)LoadImage(hinst, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16, 16,
                                     LR_DEFAULTCOLOR),
@@ -43,20 +40,11 @@ class MainWindow {
     THROW_LAST_ERROR_IF(!hwnd.is_valid());
     RECT rc;
     THROW_IF_WIN32_BOOL_FALSE(GetClientRect(hwnd.get(), &rc));
-    double dpiRatio = GetDpiForWindow(hwnd.get()) / 96.0;
-    editHwnd_ = wil::unique_hwnd{
-        CreateWindowEx(0, TEXT("SEditWindowClass"), nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0,
-                       30 * dpiRatio, rc.right - rc.left, rc.bottom - rc.top - 30 * dpiRatio,
-                       hwnd.get(), nullptr, hinst, nullptr)};
+    editHwnd_ = wil::unique_hwnd{CreateWindowEx(
+        0, TEXT("SEditWindowClass"), nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0,
+        rc.right - rc.left, rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
     SetFocus(editHwnd_.get());
-    {  // enable mica
-      DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
-      DwmSetWindowAttribute(hwnd.get(), DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
-                            sizeof(DWM_SYSTEMBACKDROP_TYPE));
-      MARGINS margins = {0, 0, (int)(30 * dpiRatio), 0};
-      DwmExtendFrameIntoClientArea(hwnd.get(), &margins);
-    }
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
   }
@@ -67,9 +55,8 @@ class MainWindow {
     if (!GetClientRect(hwnd_, &rc)) {
       return 0;  // ignore transient error
     }
-    double dpiRatio = GetDpiForWindow(hwnd_) / 96.0;
-    SetWindowPos(editHwnd_.get(), nullptr, 0, 30 * dpiRatio, rc.right - rc.left,
-                 rc.bottom - rc.top - 30 * dpiRatio, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(editHwnd_.get(), nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
     return 0;
   }
   LRESULT OnSetFocus() {

@@ -5,6 +5,7 @@ configure_file(
 )
 
 add_executable(app WIN32
+  menu.rc
   sedit.cpp
   winmain.cpp
   ${CMAKE_BINARY_DIR}/res.rc

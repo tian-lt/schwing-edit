@@ -15,6 +15,12 @@ namespace {
 
 const char* default_font_file(UScriptCode script) {
   switch (script) {
+    case USCRIPT_LATIN:
+    case USCRIPT_GREEK:
+    case USCRIPT_CYRILLIC:
+    case USCRIPT_COMMON:
+    case USCRIPT_INHERITED:
+      return "arial.ttf";
     case USCRIPT_HAN:
     case USCRIPT_BOPOMOFO:
       return "msyh.ttc";
@@ -52,7 +58,7 @@ const char* default_font_file(UScriptCode script) {
     case USCRIPT_CHEROKEE:
       return "gadugi.ttf";
     default:
-      return nullptr;
+      return "arial.ttf";
   }
 }
 
@@ -75,21 +81,20 @@ fontengine::fontengine(const std::string& fontpath, double fontsize, int dpi) {
   impl::reset(this, fontpath, fontsize, dpi);
 }
 
-std::string font_for_script(UScriptCode script, const std::string& fallback) {
+std::string font_for_script(UScriptCode script) {
   const char* file = default_font_file(script);
-  if (file == nullptr) {
-    return fallback;
-  }
 #ifdef _WIN32
-  std::filesystem::path path = std::filesystem::path{R"(C:\Windows\Fonts)"} / file;
+  const std::filesystem::path fonts_dir{R"(C:\Windows\Fonts)"};
 #else
 #error "font_for_script: system font directory is only implemented for Windows."
 #endif
+  std::filesystem::path path = fonts_dir / file;
   std::error_code ec;
-  if (!std::filesystem::exists(path, ec)) {
-    return fallback;
+  if (std::filesystem::exists(path, ec)) {
+    return path.string();
+  } else {
+    throw std::runtime_error("font_for_script: font file not found: " + path.string());
   }
-  return path.string();
 }
 
 }  // namespace swg

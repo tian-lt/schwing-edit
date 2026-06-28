@@ -45,12 +45,11 @@ quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv
 
 // ===--------------------
 // plaindoc implementation
-plaindoc::plaindoc(host* host, std::string fontpath, double fontsize, eol eol,
+plaindoc::plaindoc(host* host, double fontsize, eol eol,
                    std::optional<std::filesystem::path> filepath)
     : ptable_(filepath ? piecetable::from_file(*filepath) : piecetable{}),
       ltable_(eol),
       host_(host),
-      fontpath_(fontpath),
       hbbuf_(hb_buffer_create()),
       fontsize_(fontsize),
       eol_(eol) {
@@ -81,7 +80,7 @@ struct host::impl {
     auto& fonts = self->doc->fonts_;
     auto it = fonts.find(script);
     if (it == fonts.end()) {
-      std::string path = font_for_script(script, self->doc->fontpath_);
+      std::string path = font_for_script(script);
       it = fonts.try_emplace(script, path, self->doc->fontsize_, self->dpi).first;
     }
     return it->second;
@@ -171,10 +170,12 @@ struct host::impl {
   static std::generator<quad> layout(host* self) {
     float peny = 0.f;
     for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
+      if (peny > self->viewport.h + self->viewport.y) {
+        break;
+      }
       float penx = 1.f;
       peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
       for (const glyph& g : shape_line(self, l)) {
-        // stop shaping the line once the pen moves past the viewport's right edge
         if (penx > (float)self->viewport.w) {
           break;
         }
@@ -207,7 +208,27 @@ void host::initialize_graphics() {
   atlas_.emplace(512, 512);
 }
 
+void host::set(plaindoc* new_doc) {
+  if (doc == new_doc) {
+    return;
+  }
+  doc = new_doc;
+  inspos_ = 0;
+  if (doc == nullptr) {
+    atlas_.reset();
+    streamer_.reset();
+    glprog_.reset();
+    loc_viewport_ = -1;
+  } else if (!glprog_) {
+    initialize_graphics();
+  }
+  on_invalidate(viewport);
+}
+
 void host::render(rect /*rc*/) {
+  if (doc == nullptr) {
+    return;
+  }
   quad_vertex* verts = streamer_->begin();
   size_t quad_count = 0;
   auto quadgen = impl::layout(this);
@@ -225,13 +246,16 @@ void host::render(rect /*rc*/) {
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");
+  if (doc == nullptr) {
+    return;
+  }
   size_t before = inspos_;
   doc->insert(inspos_, u8char);
   inspos_ += u8char.length();
   impl::post_edit(this, before, inspos_);
 }
 void host::erase_char() {
-  if (doc->length() == 0 || inspos_ == 0) {
+  if (doc == nullptr || doc->length() == 0 || inspos_ == 0) {
     return;
   }
   size_t l = std::min(6uz, inspos_);
@@ -253,6 +277,9 @@ void host::erase_char() {
   impl::post_edit(this, before, inspos_);
 }
 void host::linefeed() {
+  if (doc == nullptr) {
+    return;
+  }
   size_t before = inspos_;
   switch (doc->eol_) {
     case eol::cr:

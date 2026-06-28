@@ -1,11 +1,13 @@
 #pragma once
 
 // windows header
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <Windows.h>
-#undef NOMINMAX
-#undef WIN32_LEAN_AND_MEAN
 
 #define WM_UAHDRAWMENU 0x0091
 #define WM_UAHDRAWMENUITEM 0x0092

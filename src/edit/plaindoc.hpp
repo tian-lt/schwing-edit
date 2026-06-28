@@ -33,7 +33,7 @@ class host {
   virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
 
-  void initialize_graphics();
+  void set(plaindoc* doc);
   void render(rect rc);
   void caret(docpos pos);
   docpos caret() const;
@@ -48,6 +48,7 @@ class host {
   int dpi = 96;
 
  private:
+  void initialize_graphics();
   size_t inspos_ = 0;
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
@@ -59,7 +60,7 @@ class plaindoc {
   friend class host;
 
  public:
-  explicit plaindoc(host* host, std::string fontpath, double fontsize, eol eol,
+  explicit plaindoc(host* host, double fontsize, eol eol,
                     std::optional<std::filesystem::path> filepath = std::nullopt);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
@@ -70,7 +71,6 @@ class plaindoc {
   piecetable ptable_;
   linetable ltable_;
   host* host_;
-  std::string fontpath_;
   std::map<UScriptCode, fontengine> fonts_;
   unique_hb_buffer hbbuf_;
   double fontsize_;

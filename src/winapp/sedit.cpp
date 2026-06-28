@@ -1,6 +1,5 @@
 // std
 #include <cstdint>
-#include <filesystem>
 #include <format>
 #include <memory>
 #include <optional>
@@ -21,9 +20,6 @@
 
 namespace {
 
-const double default_font_size = 12.0;
-const std::string default_font_path = R"(C:\Windows\Fonts\Arial.ttf)";
-// const std::string default_font_path = R"(C:\Windows\Fonts\msyh.ttc)";
 const wchar_t wgl_dummy_window_class[] = L"SEditWglDummyWindowClass";
 
 PIXELFORMATDESCRIPTOR OpenGLPixelFormatDescriptor() {
@@ -144,13 +140,8 @@ unique_wgl_bootstrap_context CreateWglBootstrapContext() {
 
 class Sedit : public swg::host {
  public:
-  Sedit(HWND hwnd, std::string fontpath, double fontsize,
-        std::optional<std::filesystem::path> filepath = std::nullopt)
-      : hwnd_(hwnd),
-        doc_(this, std::move(fontpath), fontsize, swg::eol::crlf, std::move(filepath)) {
-    doc = &doc_;
+  explicit Sedit(HWND hwnd) : hwnd_(hwnd) {
     dpi = GetDpiForWindow(hwnd_);
-    double ratio = dpi / 96.0;
     InitializeGraphics();
   }
 
@@ -210,12 +201,14 @@ class Sedit : public swg::host {
         insert_char(*res);
       }
 #ifdef _DEBUG
-      auto s = doc_.get(0, doc_.length());
-      int l = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-      std::wstring wstr((size_t)l, 0);
-      MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), wstr.data(),
-                          static_cast<int>(wstr.size()));
-      OutputDebugStringW(std::format(L"{}\n", wstr).c_str());
+      if (doc != nullptr) {
+        auto s = doc->get(0, doc->length());
+        int l = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+        std::wstring wstr((size_t)l, 0);
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), wstr.data(),
+                            static_cast<int>(wstr.size()));
+        OutputDebugStringW(std::format(L"{}\n", wstr).c_str());
+      }
 #endif
     }
     return 0;
@@ -328,7 +321,6 @@ class Sedit : public swg::host {
     }
     glrc_ = std::move(ctx);
     hdc_ = std::move(hdc);
-    initialize_graphics();
   }
 
  private:
@@ -351,7 +343,8 @@ class Sedit : public swg::host {
         return GetThis(hwnd)->OnKillFocus();
       case WM_CREATE: {
         auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
-        auto edit = std::make_unique<Sedit>(hwnd, default_font_path, default_font_size);
+        auto edit = std::make_unique<Sedit>(hwnd);
+        edit->set(new swg::plaindoc(nullptr, 12.0, swg::eol::crlf));
         edit->viewport = swg::rect{.x = 0, .y = 0, .w = cs->cx, .h = cs->cy};
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(edit.release()));
         return 0;
@@ -372,7 +365,6 @@ class Sedit : public swg::host {
   HWND hwnd_ = nullptr;
   wil::unique_hdc_window hdc_;
   unique_hglrc glrc_;
-  swg::plaindoc doc_;
   wchar_t surrogate_[2] = {};
 };
 

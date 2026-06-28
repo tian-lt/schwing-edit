@@ -21,6 +21,6 @@ class fontengine {
   unique_hb_font hbfont_;
 };
 
-std::string font_for_script(UScriptCode script, const std::string& fallback);
+std::string font_for_script(UScriptCode script);
 
 }  // namespace swg

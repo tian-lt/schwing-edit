@@ -67,14 +67,33 @@ class MainWindow {
     PostQuitMessage(0);
     return 0;
   }
+  LRESULT OnCommand(int id) {
+    switch (id) {
+      case IDM_FILE_OPEN:
+        break;
+      case IDM_FILE_SAVE:
+        break;
+      case IDM_FILE_SAVEAS:
+        break;
+      case IDM_FILE_EXIT:
+        PostMessage(hwnd_, WM_CLOSE, 0, 0);
+        break;
+    }
+    return 0;
+  }
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case WM_COMMAND:
+        return GetThis(hwnd)->OnCommand(LOWORD(wparam));
       case WM_SIZE:
         return GetThis(hwnd)->OnSize();
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
+      case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
       case WM_CREATE: {
         auto info = reinterpret_cast<LPCREATESTRUCT>(lparam);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(info->lpCreateParams));

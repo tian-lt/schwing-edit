@@ -352,7 +352,6 @@ class Sedit : public swg::host {
       case WM_CREATE: {
         auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
         auto edit = std::make_unique<Sedit>(hwnd);
-        // edit->set(new swg::plaindoc(nullptr, 12.0, swg::eol::crlf));
         edit->viewport = swg::rect{.x = 0, .y = 0, .w = cs->cx, .h = cs->cy};
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(edit.release()));
         return 0;

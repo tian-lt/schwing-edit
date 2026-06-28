@@ -17,6 +17,8 @@
 #include <wil/result_macros.h>
 // swg
 #include <plaindoc.hpp>
+// app
+#include "sedit.hpp"
 
 namespace {
 
@@ -158,7 +160,7 @@ class Sedit : public swg::host {
         .hInstance = GetModuleHandle(nullptr),
         .hCursor = LoadCursor(nullptr, IDC_IBEAM),
         .hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
-        .lpszClassName = TEXT("SEditWindowClass"),
+        .lpszClassName = SeditWindowClass,
     };
     ATOM atom = RegisterClassEx(&wcex);
     THROW_LAST_ERROR_IF(atom == 0);
@@ -172,6 +174,10 @@ class Sedit : public swg::host {
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
 
+  LRESULT OnSet(swg::plaindoc* doc) {
+    set(doc);
+    return 0;
+  }
   LRESULT OnPaint() {
     PAINTSTRUCT ps;
     auto hdc = wil::BeginPaint(hwnd_, &ps);
@@ -326,6 +332,8 @@ class Sedit : public swg::host {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+      case std::to_underlying(SeditMessage::SetDoc):
+        return GetThis(hwnd)->OnSet(reinterpret_cast<swg::plaindoc*>(lparam));
       case WM_SIZE:
         return GetThis(hwnd)->OnSize(LOWORD(lparam), HIWORD(lparam));
       case WM_ERASEBKGND:
@@ -344,7 +352,7 @@ class Sedit : public swg::host {
       case WM_CREATE: {
         auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
         auto edit = std::make_unique<Sedit>(hwnd);
-        edit->set(new swg::plaindoc(nullptr, 12.0, swg::eol::crlf));
+        // edit->set(new swg::plaindoc(nullptr, 12.0, swg::eol::crlf));
         edit->viewport = swg::rect{.x = 0, .y = 0, .w = cs->cx, .h = cs->cy};
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(edit.release()));
         return 0;

@@ -1,12 +1,16 @@
+// std
+#include <optional>
 // windows
 #include "win.hpp"
 // wil
 #include <wil/resource.h>
 #include <wil/result_macros.h>
 // swg
-#include "resource.hpp"
+#include <plaindoc.hpp>
+#include <resource.hpp>
 // app
 #include "res.h"
+#include "sedit.hpp"
 
 namespace {
 static_assert(std::is_same_v<TCHAR, wchar_t>);
@@ -41,9 +45,12 @@ class MainWindow {
     RECT rc;
     THROW_IF_WIN32_BOOL_FALSE(GetClientRect(hwnd.get(), &rc));
     editHwnd_ = wil::unique_hwnd{CreateWindowEx(
-        0, TEXT("SEditWindowClass"), nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0,
-        rc.right - rc.left, rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
+        0, SeditWindowClass, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, rc.right - rc.left,
+        rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
+    doc_.emplace(nullptr, 12.0, swg::eol::crlf);
+    SendMessage(editHwnd_.get(), std::to_underlying(SeditMessage::SetDoc), 0,
+                reinterpret_cast<LPARAM>(&(*doc_)));
     SetFocus(editHwnd_.get());
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
@@ -64,6 +71,7 @@ class MainWindow {
     return 0;
   }
   LRESULT OnDestroy() {
+    doc_.reset();
     PostQuitMessage(0);
     return 0;
   }
@@ -81,6 +89,10 @@ class MainWindow {
     }
     return 0;
   }
+  LRESULT OnClose() {
+    DestroyWindow(hwnd_);
+    return 0;
+  }
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -92,8 +104,7 @@ class MainWindow {
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_CLOSE:
-        DestroyWindow(hwnd);
-        return 0;
+        return GetThis(hwnd)->OnDestroy();
       case WM_CREATE: {
         auto info = reinterpret_cast<LPCREATESTRUCT>(lparam);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(info->lpCreateParams));
@@ -120,6 +131,7 @@ class MainWindow {
  private:
   HWND hwnd_ = nullptr;
   wil::unique_hwnd editHwnd_;
+  std::optional<swg::plaindoc> doc_;
 };
 
 const ATOM MainWndInit = MainWindow::Initailize();

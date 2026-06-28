@@ -196,6 +196,11 @@ class Sedit : public swg::host {
     if (ctrl || alt) {
       return 0;
     }
+    // drop control characters except the editing keys we handle below
+    if ((uchar < 0x20 || uchar == 0x7F) && uchar != L'\b' && uchar != L'\t' && uchar != L'\n' &&
+        uchar != L'\r') {
+      return 0;
+    }
 
     if (auto res = DigestChar(uchar); res.has_value()) {
       double ratio = GetDpiForWindow(hwnd_) / 96.0;

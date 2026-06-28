@@ -7,10 +7,9 @@
 
 namespace swg {
 
-constexpr int max_quads_per_frame = 1000;
 constexpr int vertices_per_quad = 4;
 constexpr int indices_per_quad = 6;
-constexpr int frame_vertices = max_quads_per_frame * vertices_per_quad;
+constexpr int frame_vertices = glstreamer::max_quads_per_frame * vertices_per_quad;
 constexpr int frame_bytes = frame_vertices * sizeof(quad_vertex);
 constexpr int total_vertics = frame_vertices * glstreamer::frame_count;
 constexpr int total_vertex_bytes = total_vertics * sizeof(quad_vertex);

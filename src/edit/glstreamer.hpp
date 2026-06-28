@@ -15,6 +15,7 @@ struct quad_vertex {
 class glstreamer {
  public:
   static inline constexpr int frame_count = 3;
+  static inline constexpr int max_quads_per_frame = 1000;
 
   glstreamer();
   quad_vertex* begin();

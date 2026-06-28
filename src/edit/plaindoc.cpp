@@ -201,6 +201,7 @@ struct host::impl {
 void host::initialize_graphics() {
   std::array<float, 9> vertices = {0.0f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f};
   glprog_ = details::create_gl_program();
+  glUseProgram(glprog_.get());
   loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");
   streamer_.emplace();
   atlas_.emplace(512, 512);
@@ -227,23 +228,39 @@ void host::render(rect /*rc*/) {
   if (doc == nullptr) {
     return;
   }
-  quad_vertex* verts = streamer_->begin();
-  size_t quad_count = 0;
   auto quadgen = impl::layout(this);
-  for (const auto& q : quadgen) {
-    std::memcpy(verts, q.data(), sizeof(quad));
-    verts += q.size();
-    ++quad_count;
-    if (quad_count == 1000) {
-      break;  // TODO: implement batching
+  auto qiter = quadgen.begin();
+  while (qiter != quadgen.end()) {
+    quad_vertex* verts = streamer_->begin();
+    size_t quad_count = 0;
+
+    for (; qiter != quadgen.end() && quad_count < glstreamer::max_quads_per_frame;
+         ++qiter, ++quad_count) {
+      std::memcpy(verts, (*qiter).data(), sizeof(quad));
+      verts += (*qiter).size();
     }
+    glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
+    atlas_->try_bind_gl(glprog_);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    streamer_->end(quad_count);
   }
-  glUseProgram(glprog_.get());
-  glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
-  atlas_->try_bind_gl(glprog_);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  streamer_->end(quad_count);
+
+  //quad_vertex* verts = streamer_->begin();
+  //size_t quad_count = 0;
+  //for (const auto& q : quadgen) {
+  //  std::memcpy(verts, q.data(), sizeof(quad));
+  //  verts += q.size();
+  //  ++quad_count;
+  //  if (quad_count == 1000) {
+  //    break;  // TODO: implement batching
+  //  }
+  //}
+  //glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
+  //atlas_->try_bind_gl(glprog_);
+  //glEnable(GL_BLEND);
+  //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  //streamer_->end(quad_count);
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

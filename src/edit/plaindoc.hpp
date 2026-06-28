@@ -60,7 +60,7 @@ class plaindoc {
   friend class host;
 
  public:
-  explicit plaindoc(host* host, double fontsize, eol eol,
+  explicit plaindoc(double fontsize, eol eol,
                     std::optional<std::filesystem::path> filepath = std::nullopt);
   void insert(size_t pos, std::string_view data);
   void erase(size_t pos, size_t length);
@@ -70,7 +70,6 @@ class plaindoc {
  private:
   piecetable ptable_;
   linetable ltable_;
-  host* host_;
   std::map<UScriptCode, fontengine> fonts_;
   unique_hb_buffer hbbuf_;
   double fontsize_;

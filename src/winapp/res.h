@@ -2,7 +2,8 @@
 
 #define IDI_APP_ICON 101
 
-#define IDR_MAINMENU 201
+#define IDR_MAINMENU       201
+#define IDR_MAINACCEL      202
 
 #define IDM_FILE_OPEN      1001
 #define IDM_FILE_EXIT      1002

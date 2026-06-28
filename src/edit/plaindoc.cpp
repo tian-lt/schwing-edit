@@ -45,11 +45,9 @@ quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv
 
 // ===--------------------
 // plaindoc implementation
-plaindoc::plaindoc(host* host, double fontsize, eol eol,
-                   std::optional<std::filesystem::path> filepath)
+plaindoc::plaindoc(double fontsize, eol eol, std::optional<std::filesystem::path> filepath)
     : ptable_(filepath ? piecetable::from_file(*filepath) : piecetable{}),
       ltable_(eol),
-      host_(host),
       hbbuf_(hb_buffer_create()),
       fontsize_(fontsize),
       eol_(eol) {
@@ -236,6 +234,9 @@ void host::render(rect /*rc*/) {
     std::memcpy(verts, q.data(), sizeof(quad));
     verts += q.size();
     ++quad_count;
+    if (quad_count == 1000) {
+      break;  // TODO: implement batching
+    }
   }
   glUseProgram(glprog_.get());
   glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);

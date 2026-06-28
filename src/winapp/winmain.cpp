@@ -1,8 +1,12 @@
 // std
-#include <optional>
+#include <filesystem>
+#include <memory>
 // windows
+#include <shobjidl.h>
+
 #include "win.hpp"
 // wil
+#include <wil/com.h>
 #include <wil/resource.h>
 #include <wil/result_macros.h>
 // swg
@@ -48,13 +52,14 @@ class MainWindow {
         0, SeditWindowClass, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, rc.right - rc.left,
         rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
-    doc_.emplace(nullptr, 12.0, swg::eol::crlf);
+    doc_ = std::make_unique<swg::plaindoc>(12.0, swg::eol::crlf);
     SendMessage(editHwnd_.get(), std::to_underlying(SeditMessage::SetDoc), 0,
-                reinterpret_cast<LPARAM>(&(*doc_)));
+                reinterpret_cast<LPARAM>(doc_.get()));
     SetFocus(editHwnd_.get());
     ShowWindow(hwnd.get(), cmdShow);
     hwnd_ = hwnd.release();
   }
+  HWND Handle() const noexcept { return hwnd_; }
 
  private:
   LRESULT OnSize() {
@@ -78,6 +83,7 @@ class MainWindow {
   LRESULT OnCommand(int id) {
     switch (id) {
       case IDM_FILE_OPEN:
+        OpenFile();
         break;
       case IDM_FILE_SAVE:
         break;
@@ -92,6 +98,23 @@ class MainWindow {
   LRESULT OnClose() {
     DestroyWindow(hwnd_);
     return 0;
+  }
+
+  void OpenFile() {
+    // TODO: check unsaved changes
+    auto dialog = wil::CoCreateInstance<IFileOpenDialog>(CLSID_FileOpenDialog);
+    HRESULT hr = dialog->Show(hwnd_);
+    if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+      return;
+    }
+    THROW_IF_FAILED(hr);
+    wil::com_ptr<IShellItem> item;
+    THROW_IF_FAILED(dialog->GetResult(&item));
+    wil::unique_cotaskmem_string path;
+    THROW_IF_FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path));
+    doc_ = std::make_unique<swg::plaindoc>(12, swg::eol::crlf, std::filesystem::path{path.get()});
+    SendMessage(editHwnd_.get(), std::to_underlying(SeditMessage::SetDoc), 0,
+                reinterpret_cast<LPARAM>(doc_.get()));
   }
 
  private:
@@ -131,7 +154,7 @@ class MainWindow {
  private:
   HWND hwnd_ = nullptr;
   wil::unique_hwnd editHwnd_;
-  std::optional<swg::plaindoc> doc_;
+  std::unique_ptr<swg::plaindoc> doc_;
 };
 
 const ATOM MainWndInit = MainWindow::Initailize();
@@ -141,11 +164,16 @@ const ATOM MainWndInit = MainWindow::Initailize();
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
                     _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
   swg::initialize();
+  auto coInit = wil::CoInitializeEx(COINIT_APARTMENTTHREADED);
   THROW_IF_WIN32_BOOL_FALSE(
       SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
   MainWindow mainWnd{hInstance, nCmdShow};
+  wil::unique_haccel accel{LoadAccelerators(hInstance, MAKEINTRESOURCE(IDR_MAINACCEL))};
   MSG msg;
   while (GetMessage(&msg, nullptr, 0, 0)) {
+    if (TranslateAccelerator(mainWnd.Handle(), accel.get(), &msg)) {
+      continue;
+    }
     TranslateMessage(&msg);
     DispatchMessage(&msg);
   }

@@ -233,7 +233,6 @@ void host::render(rect /*rc*/) {
   while (qiter != quadgen.end()) {
     quad_vertex* verts = streamer_->begin();
     size_t quad_count = 0;
-
     for (; qiter != quadgen.end() && quad_count < glstreamer::max_quads_per_frame;
          ++qiter, ++quad_count) {
       std::memcpy(verts, (*qiter).data(), sizeof(quad));
@@ -245,22 +244,6 @@ void host::render(rect /*rc*/) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     streamer_->end(quad_count);
   }
-
-  //quad_vertex* verts = streamer_->begin();
-  //size_t quad_count = 0;
-  //for (const auto& q : quadgen) {
-  //  std::memcpy(verts, q.data(), sizeof(quad));
-  //  verts += q.size();
-  //  ++quad_count;
-  //  if (quad_count == 1000) {
-  //    break;  // TODO: implement batching
-  //  }
-  //}
-  //glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
-  //atlas_->try_bind_gl(glprog_);
-  //glEnable(GL_BLEND);
-  //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  //streamer_->end(quad_count);
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

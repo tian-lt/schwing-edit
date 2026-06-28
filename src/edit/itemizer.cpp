@@ -1,6 +1,8 @@
 // std
 #include <bit>
 #include <cstdint>
+// icu
+#include <unicode/uchar.h>
 // swg
 #include "itemizer.hpp"
 
@@ -30,6 +32,9 @@ struct itemizer::impl {
     UScriptCode sc = uscript_getScript(uch, &ec);
     if (U_FAILURE(ec)) {
       sc = USCRIPT_UNKNOWN;
+    }
+    if (u_hasBinaryProperty(uch, UCHAR_EMOJI_PRESENTATION)) {
+      sc = USCRIPT_SYMBOLS_EMOJI;
     }
     if (!self->run_.has_value()) {
       if ((sc == USCRIPT_COMMON || sc == USCRIPT_INHERITED) && self->carry_.has_value()) {

@@ -20,7 +20,7 @@ const char* default_font_file(UScriptCode script) {
     case USCRIPT_CYRILLIC:
     case USCRIPT_COMMON:
     case USCRIPT_INHERITED:
-      return "arial.ttf";
+      return "consola.ttf";
     case USCRIPT_HAN:
     case USCRIPT_BOPOMOFO:
       return "msyh.ttc";
@@ -57,6 +57,8 @@ const char* default_font_file(UScriptCode script) {
     case USCRIPT_CANADIAN_ABORIGINAL:
     case USCRIPT_CHEROKEE:
       return "gadugi.ttf";
+    case USCRIPT_SYMBOLS_EMOJI:
+      return "seguiemj.ttf";
     default:
       return "arial.ttf";
   }

@@ -74,6 +74,10 @@ struct host::impl {
     // TODO: update underlying data
     self->on_invalidate({});
   }
+  static void reset_graphics(host* self) {
+    self->streamer_.emplace();
+    self->atlas_.emplace(512, 512);
+  }
   static fontengine& select_font(host* self, UScriptCode script) {
     auto& fonts = self->doc->fonts_;
     auto it = fonts.find(script);
@@ -203,27 +207,16 @@ void host::initialize_graphics() {
   glprog_ = details::create_gl_program();
   glUseProgram(glprog_.get());
   loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");
-  streamer_.emplace();
-  atlas_.emplace(512, 512);
 }
-
 void host::set(plaindoc* new_doc) {
   if (doc == new_doc) {
     return;
   }
   doc = new_doc;
   inspos_ = 0;
-  if (doc == nullptr) {
-    atlas_.reset();
-    streamer_.reset();
-    glprog_.reset();
-    loc_viewport_ = -1;
-  } else if (!glprog_) {
-    initialize_graphics();
-  }
+  impl::reset_graphics(this);
   on_invalidate(viewport);
 }
-
 void host::render(rect /*rc*/) {
   if (doc == nullptr) {
     return;

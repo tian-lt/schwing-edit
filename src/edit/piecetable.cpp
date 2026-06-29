@@ -1,6 +1,7 @@
 // std
 #include <cassert>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <system_error>
 
@@ -91,20 +92,30 @@ struct piecetable::impl {
 };
 
 piecetable piecetable::from_file(const std::filesystem::path& path) {
+  constexpr size_t occupy_size = 10 * 1024u * 1024u;  // 10MB
   piecetable table;
-  auto owner = std::make_shared<mapped_file>();
+  auto fsize = std::filesystem::file_size(path);
+  if (0 < fsize && fsize < occupy_size) {
+    std::ifstream fs;
+    fs.exceptions(std::ios::failbit | std::ios::badbit);
+    fs.open(path, std::ios::binary);
+    table.data_.resize(fsize);
+    fs.read(table.data_.data(), fsize);
+    table.initbuf_ = std::string_view{table.data_.data(), fsize};
+    table.piecelist_ = {piece{.offset = 0, .length = fsize, .is_original = true}};
+  } else if (fsize >= occupy_size) {
+    auto owner = std::make_shared<mapped_file>();
 #ifdef _WIN32
-  // FILE_SHARE_READ only: other processes may read but cannot write or delete the file.
-  owner->handle = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (owner->handle == INVALID_HANDLE_VALUE) {
-    throw std::system_error{static_cast<int>(::GetLastError()), std::system_category(),
-                            "failed to open file"};
-  }
+    // FILE_SHARE_READ only: other processes may read but cannot write or delete the file.
+    owner->handle = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (owner->handle == INVALID_HANDLE_VALUE) {
+      throw std::system_error{static_cast<int>(::GetLastError()), std::system_category(),
+                              "failed to open file"};
+    }
 #else
 #error "piecetable::from_file is currently Win32 only"
 #endif
-  if (std::filesystem::file_size(path) > 0) {
     std::error_code ec;
 #ifdef _WIN32
     owner->mmap.map(owner->handle, 0, mio::map_entire_file, ec);
@@ -116,8 +127,8 @@ piecetable piecetable::from_file(const std::filesystem::path& path) {
     }
     table.initbuf_ = std::string_view{owner->mmap.data(), owner->mmap.size()};
     table.piecelist_ = {piece{.offset = 0, .length = owner->mmap.size(), .is_original = true}};
+    table.mmap_ = std::move(owner);
   }
-  table.mmap_ = std::move(owner);
   return table;
 }
 

@@ -173,6 +173,18 @@ class Sedit : public swg::host {
     // InvalidateRect(hwnd_, &winrc, FALSE);
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
+  void vscroll(swg::scrollinfo info) override {
+    auto styles = GetWindowLongPtr(hwnd_, GWL_STYLE);
+    if (info.page < (info.max - info.min) + 1) {
+      if (!(styles & WS_VSCROLL)) {
+        SetWindowLongPtr(hwnd_, GWL_STYLE, styles | WS_VSCROLL);
+      }
+    } else {
+      if (styles & WS_VSCROLL) {
+        SetWindowLongPtr(hwnd_, GWL_STYLE, styles & ~WS_VSCROLL);
+      }
+    }
+  }
 
   LRESULT OnSet(swg::plaindoc* doc) {
     set(doc);
@@ -332,6 +344,7 @@ class Sedit : public swg::host {
     }
     glrc_ = std::move(ctx);
     hdc_ = std::move(hdc);
+    initialize_graphics();
   }
 
  private:

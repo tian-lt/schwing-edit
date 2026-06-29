@@ -36,6 +36,7 @@ class piecetable {
   std::shared_ptr<void> mmap_;
   std::string_view initbuf_;
   std::string addbuf_;
+  std::string data_;
 };
 
 }  // namespace swg

@@ -25,6 +25,13 @@ struct docpos {
   int line, column;
 };
 
+struct scrollinfo {
+  int min;
+  int max;
+  int page;
+  int pos;
+};
+
 class host {
   friend class plaindoc;
   struct impl;
@@ -32,7 +39,9 @@ class host {
  public:
   virtual ~host() = default;
   virtual void on_invalidate(rect rc) = 0;
+  virtual void vscroll(scrollinfo info) = 0;
 
+  void initialize_graphics();
   void set(plaindoc* doc);
   void render(rect rc);
   void caret(docpos pos);
@@ -48,7 +57,6 @@ class host {
   int dpi = 96;
 
  private:
-  void initialize_graphics();
   size_t inspos_ = 0;
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;

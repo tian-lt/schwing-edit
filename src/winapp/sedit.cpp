@@ -174,16 +174,13 @@ class Sedit : public swg::host {
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
   void vscroll(swg::scrollinfo info) override {
-    auto styles = GetWindowLongPtr(hwnd_, GWL_STYLE);
-    if (info.page < (info.max - info.min) + 1) {
-      if (!(styles & WS_VSCROLL)) {
-        SetWindowLongPtr(hwnd_, GWL_STYLE, styles | WS_VSCROLL);
-      }
-    } else {
-      if (styles & WS_VSCROLL) {
-        SetWindowLongPtr(hwnd_, GWL_STYLE, styles & ~WS_VSCROLL);
-      }
-    }
+    SCROLLINFO si{.cbSize = sizeof(SCROLLINFO),
+                  .fMask = SIF_RANGE | SIF_PAGE | SIF_POS,
+                  .nMin = info.min,
+                  .nMax = info.max,
+                  .nPage = static_cast<UINT>(info.page),
+                  .nPos = info.pos};
+    SetScrollInfo(hwnd_, SB_VERT, &si, TRUE);
   }
 
   LRESULT OnSet(swg::plaindoc* doc) {
@@ -193,6 +190,18 @@ class Sedit : public swg::host {
   LRESULT OnPaint() {
     PAINTSTRUCT ps;
     auto hdc = wil::BeginPaint(hwnd_, &ps);
+    bool resized = false;
+    RECT rc;
+    if (GetClientRect(hwnd_, &rc)) {
+      int cw = rc.right - rc.left;
+      int ch = rc.bottom - rc.top;
+      if (cw != viewport.w || ch != viewport.h) {
+        viewport.w = cw;
+        viewport.h = ch;
+        glViewport(0, 0, cw, ch);
+        resized = true;
+      }
+    }
     glClearColor(1.f, 1.f, 1.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
     render({.x = ps.rcPaint.left,
@@ -200,6 +209,12 @@ class Sedit : public swg::host {
             .w = ps.rcPaint.right - ps.rcPaint.left,
             .h = ps.rcPaint.bottom - ps.rcPaint.top});
     SwapBuffers(hdc_.get());
+    // The WGL back buffer only adopts the new client size at SwapBuffers, so the
+    // frame drawn right after a scrollbar show/hide lands in a stale-sized buffer.
+    // Repaint once more so the resized buffer receives a pixel-perfect frame.
+    if (resized) {
+      InvalidateRect(hwnd_, nullptr, FALSE);
+    }
     return 0;
   }
   LRESULT OnChar(wchar_t uchar) {
@@ -237,9 +252,61 @@ class Sedit : public swg::host {
     return 0;
   }
   LRESULT OnSize(int width, int height) {
-    viewport.w = width;
-    viewport.h = height;
     glViewport(0, 0, width, height);
+    resize(width, height);
+    return 0;
+  }
+  LRESULT OnVScroll(WORD request) {
+    SCROLLINFO si{.cbSize = sizeof(SCROLLINFO), .fMask = SIF_ALL};
+    if (!GetScrollInfo(hwnd_, SB_VERT, &si)) {
+      return 0;
+    }
+    int pos = si.nPos;
+    switch (request) {
+      case SB_TOP:
+        pos = si.nMin;
+        break;
+      case SB_BOTTOM:
+        pos = si.nMax;
+        break;
+      case SB_LINEUP:
+        pos -= 1;
+        break;
+      case SB_LINEDOWN:
+        pos += 1;
+        break;
+      case SB_PAGEUP:
+        pos -= static_cast<int>(si.nPage);
+        break;
+      case SB_PAGEDOWN:
+        pos += static_cast<int>(si.nPage);
+        break;
+      case SB_THUMBTRACK:
+      case SB_THUMBPOSITION:
+        pos = si.nTrackPos;
+        break;
+      default:
+        return 0;
+    }
+    scroll_to(pos);
+    return 0;
+  }
+  LRESULT OnMouseWheel(short delta) {
+    wheel_remainder_ += delta;
+    int notches = wheel_remainder_ / WHEEL_DELTA;
+    wheel_remainder_ -= notches * WHEEL_DELTA;
+    if (notches == 0) {
+      return 0;
+    }
+    UINT lines_per_notch = 3;
+    SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &lines_per_notch, 0);
+    SCROLLINFO si{.cbSize = sizeof(SCROLLINFO), .fMask = SIF_PAGE | SIF_POS};
+    if (!GetScrollInfo(hwnd_, SB_VERT, &si)) {
+      return 0;
+    }
+    int step = lines_per_notch == WHEEL_PAGESCROLL ? static_cast<int>(si.nPage)
+                                                   : static_cast<int>(lines_per_notch);
+    scroll_to(si.nPos - notches * step);
     return 0;
   }
   LRESULT OnSetFocus() { return 0; }
@@ -354,6 +421,10 @@ class Sedit : public swg::host {
         return GetThis(hwnd)->OnSet(reinterpret_cast<swg::plaindoc*>(lparam));
       case WM_SIZE:
         return GetThis(hwnd)->OnSize(LOWORD(lparam), HIWORD(lparam));
+      case WM_VSCROLL:
+        return GetThis(hwnd)->OnVScroll(LOWORD(wparam));
+      case WM_MOUSEWHEEL:
+        return GetThis(hwnd)->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wparam));
       case WM_ERASEBKGND:
         return 0;
       case WM_PAINT:
@@ -368,9 +439,11 @@ class Sedit : public swg::host {
       case WM_KILLFOCUS:
         return GetThis(hwnd)->OnKillFocus();
       case WM_CREATE: {
-        auto cs = reinterpret_cast<LPCREATESTRUCT>(lparam);
         auto edit = std::make_unique<Sedit>(hwnd);
-        edit->viewport = swg::rect{.x = 0, .y = 0, .w = cs->cx, .h = cs->cy};
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        edit->viewport =
+            swg::rect{.x = 0, .y = 0, .w = rc.right - rc.left, .h = rc.bottom - rc.top};
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(edit.release()));
         return 0;
       }
@@ -391,6 +464,7 @@ class Sedit : public swg::host {
   wil::unique_hdc_window hdc_;
   unique_hglrc glrc_;
   wchar_t surrogate_[2] = {};
+  int wheel_remainder_ = 0;
 };
 
 const ATOM SeditWndInit = Sedit::Initialize();

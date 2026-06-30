@@ -43,7 +43,9 @@ class host {
 
   void initialize_graphics();
   void set(plaindoc* doc);
+  void resize(int width, int height);
   void render(rect rc);
+  void scroll_to(int line);
   void caret(docpos pos);
   docpos caret() const;
   void insert_char(std::string_view u8char);
@@ -58,6 +60,7 @@ class host {
 
  private:
   size_t inspos_ = 0;
+  int topline_ = 0;
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
   std::optional<glyphatlas> atlas_;

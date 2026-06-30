@@ -67,11 +67,33 @@ void plaindoc::erase(size_t pos, size_t length) {
 // ===----------------
 // host implementation
 struct host::impl {
+  static float line_height(host* self) {
+    return ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
+  }
+  static int page_lines(host* self) {
+    float lh = line_height(self);
+    if (lh <= 0.f) {
+      return 1;
+    }
+    return std::max(1, (int)((float)self->viewport.h / lh));
+  }
+  static void notify_vscroll(host* self) {
+    if (self->doc == nullptr) {
+      self->vscroll({.min = 0, .max = 0, .page = 0, .pos = 0});
+      return;
+    }
+    int lines = (int)self->doc->ltable_.size();
+    int page = page_lines(self);
+    int maxpos = std::max(0, lines - page);
+    self->topline_ = std::clamp(self->topline_, 0, maxpos);
+    self->vscroll({.min = 0, .max = std::max(0, lines - 1), .page = page, .pos = self->topline_});
+  }
   static void post_edit(host* self, size_t pos_before, size_t pos_after) {
     auto l0 = self->doc->ltable_.line_at_pos(pos_before);
     auto l1 = self->doc->ltable_.line_at_pos(pos_after);
     l0 = l0 > l1 ? l1 : l0;
     // TODO: update underlying data
+    notify_vscroll(self);
     self->on_invalidate({});
   }
   static void reset_graphics(host* self) {
@@ -170,13 +192,14 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self) {
+    const float lh = line_height(self);
     float peny = 0.f;
-    for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
-      if (peny > self->viewport.h + self->viewport.y) {
+    for (size_t l = (size_t)self->topline_; l < self->doc->ltable_.size(); ++l) {
+      peny += lh;
+      if (peny - lh > (float)self->viewport.h) {
         break;
       }
       float penx = 1.f;
-      peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
       for (const glyph& g : shape_line(self, l)) {
         if (penx > (float)self->viewport.w) {
           break;
@@ -214,7 +237,15 @@ void host::set(plaindoc* new_doc) {
   }
   doc = new_doc;
   inspos_ = 0;
+  topline_ = 0;
   impl::reset_graphics(this);
+  impl::notify_vscroll(this);
+  on_invalidate(viewport);
+}
+void host::resize(int width, int height) {
+  viewport.w = width;
+  viewport.h = height;
+  impl::notify_vscroll(this);
   on_invalidate(viewport);
 }
 void host::render(rect /*rc*/) {
@@ -237,6 +268,20 @@ void host::render(rect /*rc*/) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     streamer_->end(quad_count);
   }
+}
+void host::scroll_to(int line) {
+  if (doc == nullptr) {
+    return;
+  }
+  int lines = (int)doc->ltable_.size();
+  int maxpos = std::max(0, lines - impl::page_lines(this));
+  int clamped = std::clamp(line, 0, maxpos);
+  if (clamped == topline_) {
+    return;
+  }
+  topline_ = clamped;
+  impl::notify_vscroll(this);
+  on_invalidate(viewport);
 }
 void host::insert_char(std::string_view u8char) {
   assert(u8char != "\r" && u8char != "\n" && u8char != "\b");

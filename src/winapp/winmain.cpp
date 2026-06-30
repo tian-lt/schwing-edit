@@ -49,8 +49,8 @@ class MainWindow {
     RECT rc;
     THROW_IF_WIN32_BOOL_FALSE(GetClientRect(hwnd.get(), &rc));
     editHwnd_ = wil::unique_hwnd{CreateWindowEx(
-        0, SeditWindowClass, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, rc.right - rc.left,
-        rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
+        0, SeditWindowClass, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL, 0, 0,
+        rc.right - rc.left, rc.bottom - rc.top, hwnd.get(), nullptr, hinst, nullptr)};
     THROW_LAST_ERROR_IF(!editHwnd_.is_valid());
     doc_ = std::make_unique<swg::plaindoc>(12.0, swg::eol::crlf);
     SendMessage(editHwnd_.get(), std::to_underlying(SeditMessage::SetDoc), 0,

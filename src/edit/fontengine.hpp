@@ -15,6 +15,7 @@ class fontengine {
   explicit fontengine(const std::string& fontpath, double fontsize, int dpi);
   hb_font_t* hbfont() const { return hbfont_.get(); }
   FT_Face ftface() const { return ftface_.get(); }
+  double space_advance() const;
 
  private:
   unique_ft_face ftface_;

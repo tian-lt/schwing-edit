@@ -27,6 +27,7 @@ struct glyph {
   hb_glyph_info_t* info = nullptr;
   hb_glyph_position_t* pos = nullptr;
   glyphrecord value;
+  bool tab = false;
 };
 
 quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv) {
@@ -150,6 +151,10 @@ struct host::impl {
         FT_Face face = font.ftface();
         for (unsigned i = 0; i < glyph_count; ++i) {
           auto& info = glyph_info[i];
+          if (info.cluster < u8data.size() && u8data[info.cluster] == '\t') {
+            co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .tab = true};
+            continue;
+          }
           auto g = self->atlas_->try_get(face, info.codepoint);
           if (!g.has_value()) {
             if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
@@ -166,16 +171,27 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self, int width, int height) {
+    constexpr int tab_columns = 4;
+    constexpr float origin = 1.f;
+    float space_adv = (float)select_font(self, USCRIPT_LATIN).space_advance();
+    float tab_unit = space_adv * tab_columns;
     float peny = 0.f;
     for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
       if (peny > height) {
         break;
       }
-      float penx = 1.f;
+      float penx = origin;
       peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
       for (const glyph& g : shape_line(self, l)) {
         if (penx > width) {
           break;
+        }
+        if (g.tab) {
+          if (tab_unit > 0.f) {
+            float steps = std::floor((penx - origin) / tab_unit) + 1.f;
+            penx = origin + steps * tab_unit;
+          }
+          continue;
         }
         float xoff = g.pos->x_offset / 64.0f;
         float yoff = g.pos->y_offset / 64.0f;

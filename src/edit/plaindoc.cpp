@@ -165,16 +165,16 @@ struct host::impl {
       }
     }
   }
-  static std::generator<quad> layout(host* self) {
+  static std::generator<quad> layout(host* self, int width, int height) {
     float peny = 0.f;
     for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
-      if (peny > self->viewport.h + self->viewport.y) {
+      if (peny > height) {
         break;
       }
       float penx = 1.f;
       peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
       for (const glyph& g : shape_line(self, l)) {
-        if (penx > (float)self->viewport.w) {
+        if (penx > width) {
           break;
         }
         float xoff = g.pos->x_offset / 64.0f;
@@ -213,11 +213,16 @@ void host::set(plaindoc* new_doc) {
   impl::reset_graphics(this);
   on_invalidate();
 }
+void host::resize(int width, int height) {
+  width_ = width;
+  height_ = height;
+  on_invalidate();
+}
 void host::render() {
   if (doc == nullptr) {
     return;
   }
-  auto quadgen = impl::layout(this);
+  auto quadgen = impl::layout(this, width_, height_);
   auto qiter = quadgen.begin();
   while (qiter != quadgen.end()) {
     quad_vertex* verts = streamer_->begin();
@@ -227,7 +232,7 @@ void host::render() {
       std::memcpy(verts, (*qiter).data(), sizeof(quad));
       verts += (*qiter).size();
     }
-    glUniform2i(loc_viewport_, viewport.w, viewport.h);
+    glUniform2i(loc_viewport_, width_, height_);
     atlas_->try_bind_gl(glprog_);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

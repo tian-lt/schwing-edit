@@ -44,6 +44,7 @@ class host {
   void initialize_graphics();
   void set(plaindoc* doc);
   void render();
+  void resize(int width, int height);
   void caret(docpos pos);
   docpos caret() const;
   void insert_char(std::string_view u8char);
@@ -53,7 +54,8 @@ class host {
 
  protected:
   plaindoc* doc = nullptr;
-  rect viewport = {};
+  int width_ = 0;
+  int height_ = 0;
   int dpi = 96;
 
  private:

@@ -70,7 +70,36 @@ void plaindoc::erase(size_t pos, size_t length) {
 // ===----------------
 // host implementation
 struct host::impl {
+  static int line_height(const host* self) {
+    return (int)std::ceil((float)self->doc->fontsize_ * self->dpi / 96.f * 1.5f);
+  }
+  static int line_count(const host* self) {
+    return self->doc ? (int)self->doc->ltable_.size() : 0;
+  }
+  static int page_lines(const host* self) {
+    if (self->doc == nullptr) {
+      return 1;
+    }
+    int lh = line_height(self);
+    return lh > 0 ? std::max(1, self->height_ / lh) : 1;
+  }
+  static int max_topline(const host* self) {
+    int total = line_count(self);
+    int page = page_lines(self);
+    if (total <= page) {
+      return 0;
+    }
+    return total - 1;  // scroll-beyond-last-line: the last line can reach the top
+  }
+  static void notify_vscroll(host* self) {
+    self->topline_ = std::clamp(self->topline_, 0, max_topline(self));
+    self->on_vscroll({.total_lines = line_count(self),
+                      .page_lines = page_lines(self),
+                      .top_line = self->topline_,
+                      .max_top_line = max_topline(self)});
+  }
   static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
+    notify_vscroll(self);
     self->on_invalidate();
   }
   static void reset_graphics(host* self) {
@@ -186,7 +215,7 @@ struct host::impl {
     float space_adv = (float)select_font(self, USCRIPT_LATIN).space_advance();
     float tab_unit = space_adv * self->tabsize;
     float peny = 0.f;
-    for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
+    for (size_t l = (size_t)self->topline_; l < self->doc->ltable_.size(); ++l) {
       if (peny > height) {
         break;
       }
@@ -222,9 +251,6 @@ struct host::impl {
       }
     }
   }
-  static int line_height(host* self) {
-    return (int)std::ceil((float)self->doc->fontsize_ * self->dpi / 96.f * 1.5f);
-  }
 };
 
 void host::initialize_graphics() {
@@ -239,12 +265,26 @@ void host::set(plaindoc* new_doc) {
   }
   doc = new_doc;
   inspos_ = 0;
+  topline_ = 0;
   impl::reset_graphics(this);
+  impl::notify_vscroll(this);
   on_invalidate();
 }
 void host::resize(int width, int height) {
   width_ = width;
   height_ = height;
+  impl::notify_vscroll(this);
+  on_invalidate();
+}
+int host::line_count() const { return impl::line_count(this); }
+int host::page_lines() const { return impl::page_lines(this); }
+void host::scroll_to_line(int line) {
+  int clamped = std::clamp(line, 0, impl::max_topline(this));
+  if (clamped == topline_) {
+    return;
+  }
+  topline_ = clamped;
+  impl::notify_vscroll(this);
   on_invalidate();
 }
 void host::render() {

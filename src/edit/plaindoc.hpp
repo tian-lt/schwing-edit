@@ -25,6 +25,13 @@ struct docpos {
   int line, column;
 };
 
+struct vscroll_state {
+  int total_lines;   // number of lines in the document
+  int page_lines;    // number of lines that fit in the viewport
+  int top_line;      // index of the first visible line
+  int max_top_line;  // largest top_line the scroll policy allows
+};
+
 class host {
   friend class plaindoc;
   struct impl;
@@ -32,6 +39,7 @@ class host {
  public:
   virtual ~host() = default;
   virtual void on_invalidate() = 0;
+  virtual void on_vscroll(vscroll_state state) = 0;
 
   void initialize_graphics();
   void set(plaindoc* doc);
@@ -44,6 +52,11 @@ class host {
   void delete_char();
   void linefeed();
 
+  int line_count() const;
+  int page_lines() const;
+  int top_line() const { return topline_; }
+  void scroll_to_line(int line);
+
  protected:
   plaindoc* doc = nullptr;
   int width_ = 0;
@@ -53,6 +66,7 @@ class host {
 
  private:
   size_t inspos_ = 0;
+  int topline_ = 0;
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
   std::optional<glyphatlas> atlas_;

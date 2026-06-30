@@ -371,7 +371,11 @@ TEST(piecetable_mmap_tests, empty_file_is_empty_table) {
 
 #ifdef _WIN32
 TEST(piecetable_mmap_tests, denies_external_writers) {
-  scoped_tempfile file{"locked content"};
+  // Only memory-mapped files keep an OS handle open with a deny-write share mode.
+  // Small files are snapshotted into memory and left unlocked, so use a file at
+  // the mmap threshold to exercise the lock.
+  constexpr size_t mmap_threshold = 10 * 1024u * 1024u;
+  scoped_tempfile file{std::string(mmap_threshold, 'x')};
   auto table = piecetable::from_file(file.path);
   std::ofstream writer{file.path, std::ios::binary | std::ios::out};
   EXPECT_FALSE(writer.is_open());

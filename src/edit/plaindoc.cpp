@@ -227,7 +227,7 @@ void host::render() {
       std::memcpy(verts, (*qiter).data(), sizeof(quad));
       verts += (*qiter).size();
     }
-    glUniform2f(loc_viewport_, (float)viewport.w, (float)viewport.h);
+    glUniform2i(loc_viewport_, viewport.w, viewport.h);
     atlas_->try_bind_gl(glprog_);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

@@ -31,12 +31,12 @@ unique_gl_program create_gl_program() {
 #version 330 core
 layout (location = 0) in ivec2 aPos;
 layout (location = 1) in ivec3 aUV;
-uniform vec2 uViewport;
+uniform ivec2 uViewport;
 out vec2 vUV;
 flat out int vLayer;
 void main() {
   // integer pixel coords -> NDC (vertices sit on pixel edges)
-  vec2 ndc = (vec2(aPos) / uViewport) * 2.0 - 1.0;
+  vec2 ndc = (vec2(aPos) / vec2(uViewport)) * 2.0 - 1.0;
   ndc.y = -ndc.y;
   gl_Position = vec4(ndc, 0.0, 1.0);
   vUV = vec2(aUV.xy);

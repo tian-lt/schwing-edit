@@ -67,12 +67,8 @@ void plaindoc::erase(size_t pos, size_t length) {
 // ===----------------
 // host implementation
 struct host::impl {
-  static void post_edit(host* self, size_t pos_before, size_t pos_after) {
-    auto l0 = self->doc->ltable_.line_at_pos(pos_before);
-    auto l1 = self->doc->ltable_.line_at_pos(pos_after);
-    l0 = l0 > l1 ? l1 : l0;
-    // TODO: update underlying data
-    self->on_invalidate({});
+  static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
+    self->on_invalidate();
   }
   static void reset_graphics(host* self) {
     self->streamer_.emplace();
@@ -215,9 +211,9 @@ void host::set(plaindoc* new_doc) {
   doc = new_doc;
   inspos_ = 0;
   impl::reset_graphics(this);
-  on_invalidate(viewport);
+  on_invalidate();
 }
-void host::render(rect /*rc*/) {
+void host::render() {
   if (doc == nullptr) {
     return;
   }

@@ -168,11 +168,7 @@ class Sedit : public swg::host {
   }
 
  private:
-  void on_invalidate(swg::rect rc) override {
-    // RECT winrc{rc.x, rc.y, rc.x + rc.w, rc.y + rc.h};
-    // InvalidateRect(hwnd_, &winrc, FALSE);
-    InvalidateRect(hwnd_, nullptr, FALSE);
-  }
+  void on_invalidate() override { InvalidateRect(hwnd_, nullptr, FALSE); }
   void vscroll(swg::scrollinfo info) override {
     auto styles = GetWindowLongPtr(hwnd_, GWL_STYLE);
     if (info.page < (info.max - info.min) + 1) {
@@ -195,10 +191,7 @@ class Sedit : public swg::host {
     auto hdc = wil::BeginPaint(hwnd_, &ps);
     glClearColor(1.f, 1.f, 1.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
-    render({.x = ps.rcPaint.left,
-            .y = ps.rcPaint.top,
-            .w = ps.rcPaint.right - ps.rcPaint.left,
-            .h = ps.rcPaint.bottom - ps.rcPaint.top});
+    render();
     SwapBuffers(hdc_.get());
     return 0;
   }

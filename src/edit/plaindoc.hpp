@@ -38,12 +38,12 @@ class host {
 
  public:
   virtual ~host() = default;
-  virtual void on_invalidate(rect rc) = 0;
+  virtual void on_invalidate() = 0;
   virtual void vscroll(scrollinfo info) = 0;
 
   void initialize_graphics();
   void set(plaindoc* doc);
-  void render(rect rc);
+  void render();
   void caret(docpos pos);
   docpos caret() const;
   void insert_char(std::string_view u8char);

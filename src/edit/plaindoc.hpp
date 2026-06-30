@@ -57,6 +57,7 @@ class host {
   int width_ = 0;
   int height_ = 0;
   int dpi = 96;
+  int tabsize = 4;
 
  private:
   size_t inspos_ = 0;

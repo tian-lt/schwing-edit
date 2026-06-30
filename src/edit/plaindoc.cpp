@@ -10,7 +10,9 @@
 #include <string_view>
 #include <vector>
 // icu
+#include <unicode/uchar.h>
 #include <unicode/uscript.h>
+#include <unicode/utf8.h>
 // gl
 #include <glad/glad.h>
 // swg
@@ -151,8 +153,17 @@ struct host::impl {
         FT_Face face = font.ftface();
         for (unsigned i = 0; i < glyph_count; ++i) {
           auto& info = glyph_info[i];
-          if (info.cluster < u8data.size() && u8data[info.cluster] == '\t') {
+          UChar32 cp = -1;
+          if (info.cluster < u8data.size()) {
+            int32_t _ = (int32_t)info.cluster;
+            U8_NEXT(u8data.data(), _, (int32_t)u8data.size(), cp);
+          }
+          if (cp == '\t') {
             co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i, .tab = true};
+            continue;
+          }
+          if (cp >= 0 && u_isUWhiteSpace(cp)) {
+            co_yield glyph{.info = glyph_info + i, .pos = glyph_pos + i};
             continue;
           }
           auto g = self->atlas_->try_get(face, info.codepoint);
@@ -171,10 +182,9 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self, int width, int height) {
-    constexpr int tab_columns = 4;
     constexpr float origin = 1.f;
     float space_adv = (float)select_font(self, USCRIPT_LATIN).space_advance();
-    float tab_unit = space_adv * tab_columns;
+    float tab_unit = space_adv * self->tabsize;
     float peny = 0.f;
     for (size_t l = 0; l < self->doc->ltable_.size(); ++l) {
       if (peny > height) {

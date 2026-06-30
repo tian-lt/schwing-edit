@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -280,6 +281,18 @@ class Sedit : public swg::host {
     scroll_to_line(top_line() - notches * step);
     return 0;
   }
+  LRESULT OnKeyDown(WPARAM key) {
+    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    bool ctrl_only = ctrl && !shift && !alt;
+    if (ctrl_only && key == VK_HOME) {
+      caret({.line = 0, .column = 0});
+    } else if (ctrl_only && key == VK_END) {
+      caret({.line = line_count() - 1, .column = std::numeric_limits<int>::max()});
+    }
+    return 0;
+  }
   LRESULT OnSetFocus() { return 0; }
   LRESULT OnKillFocus() { return 0; }
   std::optional<std::string> DigestChar(wchar_t uchar) {
@@ -405,6 +418,8 @@ class Sedit : public swg::host {
         return 0;
       case WM_CHAR:
         return GetThis(hwnd)->OnChar(static_cast<wchar_t>(wparam));
+      case WM_KEYDOWN:
+        return GetThis(hwnd)->OnKeyDown(wparam);
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_KILLFOCUS:

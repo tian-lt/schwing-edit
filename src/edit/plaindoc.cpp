@@ -73,9 +73,7 @@ struct host::impl {
   static int line_height(const host* self) {
     return (int)std::ceil((float)self->doc->fontsize_ * self->dpi / 96.f * 1.5f);
   }
-  static int line_count(const host* self) {
-    return self->doc ? (int)self->doc->ltable_.size() : 0;
-  }
+  static int line_count(const host* self) { return self->doc ? (int)self->doc->ltable_.size() : 0; }
   static int page_lines(const host* self) {
     if (self->doc == nullptr) {
       return 1;
@@ -85,9 +83,8 @@ struct host::impl {
   }
   static int max_topline(const host* self) {
     int total = line_count(self);
-    int page = page_lines(self);
-    if (total <= page) {
-      return 0;
+    if (total <= 1) {
+      return 0;  // a single line never scrolls
     }
     return total - 1;  // scroll-beyond-last-line: the last line can reach the top
   }
@@ -98,9 +95,102 @@ struct host::impl {
                       .top_line = self->topline_,
                       .max_top_line = max_topline(self)});
   }
-  static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
+  static void ensure_caret_visible(host* self) {
+    if (self->doc == nullptr) {
+      return;
+    }
+    int line = (int)self->doc->ltable_.line_at_pos(self->inspos_);
+    int page = page_lines(self);
+    if (line < self->topline_) {
+      self->topline_ = line;
+    } else if (line > self->topline_ + page - 1) {
+      self->topline_ = line - page + 1;
+    }
+  }
+  static void post_caret_move(host* self) {
+    ensure_caret_visible(self);
     notify_vscroll(self);
     self->on_invalidate();
+  }
+  static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
+    post_caret_move(self);
+  }
+  // docpos.column counts UTF-8 codepoints from the line start (excluding the eol).
+  static docpos caret_docpos(const host* self) {
+    if (self->doc == nullptr) {
+      return {.line = 0, .column = 0};
+    }
+    size_t pos = self->inspos_;
+    int li = (int)self->doc->ltable_.line_at_pos(pos);
+    size_t beg = self->doc->ltable_[(size_t)li].beg;
+    int col = 0;
+    std::array<char, 256> buf;
+    for (size_t off = beg; off < pos;) {
+      size_t want = std::min(buf.size(), pos - off);
+      self->doc->ptable_.get_to(off, std::span<char>{buf.data(), want});
+      for (size_t i = 0; i < want; ++i) {
+        if (((unsigned char)buf[i] & 0xC0) != 0x80) {
+          ++col;
+        }
+      }
+      off += want;
+    }
+    return {.line = li, .column = col};
+  }
+  static size_t line_content_bytes(const host* self, size_t beg, size_t length) {
+    size_t tail = std::min<size_t>(2, length);
+    if (tail == 0) {
+      return 0;
+    }
+    std::string end = self->doc->get(beg + length - tail, tail);
+    if (end.back() == '\n') {
+      return length - (end.size() >= 2 && end[end.size() - 2] == '\r' ? 2 : 1);
+    }
+    if (end.back() == '\r') {
+      return length - 1;
+    }
+    return length;
+  }
+  static void set_caret(host* self, docpos pos) {
+    if (self->doc == nullptr) {
+      return;
+    }
+    int total = line_count(self);
+    if (total == 0) {
+      self->inspos_ = 0;
+      post_caret_move(self);
+      return;
+    }
+    int li = std::clamp(pos.line, 0, total - 1);
+    auto line = self->doc->ltable_[(size_t)li];
+    size_t content = line_content_bytes(self, line.beg, line.length);
+    size_t off = 0;
+    if (pos.column > 0 && (size_t)pos.column >= content) {
+      off = content;  // a line has no more codepoints than bytes, so this is the eol
+    } else if (pos.column > 0) {
+      // Walk codepoints in chunks, stopping as soon as the column is reached.
+      int col = 0;
+      std::array<char, 256> buf;
+      while (off < content && col < pos.column) {
+        size_t want = std::min(buf.size(), content - off);
+        self->doc->ptable_.get_to(line.beg + off, std::span<char>{buf.data(), want});
+        size_t i = 0;
+        while (i < want && col < pos.column) {
+          size_t adv = 1;
+          while (i + adv < want && ((unsigned char)buf[i + adv] & 0xC0) == 0x80) {
+            ++adv;
+          }
+          if (i + adv == want && off + want < content) {
+            break;  // codepoint may span the chunk boundary; re-read it next round
+          }
+          i += adv;
+          ++col;
+        }
+        off += i;
+      }
+    }
+    self->inspos_ = line.beg + off;
+    post_caret_move(self);
   }
   static void reset_graphics(host* self) {
     self->streamer_.emplace();
@@ -287,6 +377,8 @@ void host::scroll_to_line(int line) {
   impl::notify_vscroll(this);
   on_invalidate();
 }
+docpos host::caret() const { return impl::caret_docpos(this); }
+void host::caret(docpos pos) { impl::set_caret(this, pos); }
 void host::render() {
   if (doc == nullptr) {
     return;

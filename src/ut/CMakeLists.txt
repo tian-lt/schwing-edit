@@ -1,7 +1,9 @@
 add_executable(ut
+  host_tests.cpp
   itemizer_tests.cpp
   linetable_tests.cpp
   piecetable_tests.cpp
+  plaindoc_tests.cpp
   shelf_tests.cpp
 )
 

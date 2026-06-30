@@ -76,6 +76,7 @@ class MainWindow {
     return 0;
   }
   LRESULT OnDestroy() {
+    editHwnd_.release();
     doc_.reset();
     PostQuitMessage(0);
     return 0;
@@ -96,6 +97,7 @@ class MainWindow {
     return 0;
   }
   LRESULT OnClose() {
+    ShowWindow(hwnd_, SW_HIDE);
     DestroyWindow(hwnd_);
     return 0;
   }
@@ -127,7 +129,7 @@ class MainWindow {
       case WM_SETFOCUS:
         return GetThis(hwnd)->OnSetFocus();
       case WM_CLOSE:
-        return GetThis(hwnd)->OnDestroy();
+        return GetThis(hwnd)->OnClose();
       case WM_CREATE: {
         auto info = reinterpret_cast<LPCREATESTRUCT>(lparam);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(info->lpCreateParams));

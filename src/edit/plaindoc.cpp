@@ -191,7 +191,7 @@ struct host::impl {
         break;
       }
       float penx = origin;
-      peny += ((float)self->doc->fontsize_ * self->dpi / 96.f) * 1.5f;
+      peny += line_height(self);
       for (const glyph& g : shape_line(self, l)) {
         if (penx > width) {
           break;
@@ -221,6 +221,9 @@ struct host::impl {
         co_yield make_quad(x0, y0, x1, y1, g.value.uv);
       }
     }
+  }
+  static int line_height(host* self) {
+    return (int)std::ceil((float)self->doc->fontsize_ * self->dpi / 96.f * 1.5f);
   }
 };
 

@@ -25,13 +25,6 @@ struct docpos {
   int line, column;
 };
 
-struct scrollinfo {
-  int min;
-  int max;
-  int page;
-  int pos;
-};
-
 class host {
   friend class plaindoc;
   struct impl;
@@ -39,7 +32,6 @@ class host {
  public:
   virtual ~host() = default;
   virtual void on_invalidate() = 0;
-  virtual void vscroll(scrollinfo info) = 0;
 
   void initialize_graphics();
   void set(plaindoc* doc);

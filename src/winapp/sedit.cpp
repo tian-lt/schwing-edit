@@ -169,18 +169,6 @@ class Sedit : public swg::host {
 
  private:
   void on_invalidate() override { InvalidateRect(hwnd_, nullptr, FALSE); }
-  void vscroll(swg::scrollinfo info) override {
-    auto styles = GetWindowLongPtr(hwnd_, GWL_STYLE);
-    if (info.page < (info.max - info.min) + 1) {
-      if (!(styles & WS_VSCROLL)) {
-        SetWindowLongPtr(hwnd_, GWL_STYLE, styles | WS_VSCROLL);
-      }
-    } else {
-      if (styles & WS_VSCROLL) {
-        SetWindowLongPtr(hwnd_, GWL_STYLE, styles & ~WS_VSCROLL);
-      }
-    }
-  }
 
   LRESULT OnSet(swg::plaindoc* doc) {
     set(doc);

@@ -380,9 +380,12 @@ void host::scroll_to_line(int line) {
 docpos host::caret() const { return impl::caret_docpos(this); }
 void host::caret(docpos pos) { impl::set_caret(this, pos); }
 void host::render() {
-  if (doc == nullptr) {
+  if (doc == nullptr || width_ <= 0 || height_ <= 0) {
     return;
   }
+  glViewport(0, 0, width_, height_);
+  glUseProgram(glprog_.get());
+  glUniform2i(loc_viewport_, width_, height_);
   auto quadgen = impl::layout(this, width_, height_);
   auto qiter = quadgen.begin();
   while (qiter != quadgen.end()) {
@@ -393,7 +396,6 @@ void host::render() {
       std::memcpy(verts, (*qiter).data(), sizeof(quad));
       verts += (*qiter).size();
     }
-    glUniform2i(loc_viewport_, width_, height_);
     atlas_->try_bind_gl(glprog_);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

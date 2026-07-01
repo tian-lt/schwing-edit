@@ -230,7 +230,6 @@ class Sedit : public swg::host {
   }
   LRESULT OnSize(int width, int height) {
     resize(width, height);
-    glViewport(0, 0, width, height);
     return 0;
   }
   LRESULT OnVScroll(WORD request) {

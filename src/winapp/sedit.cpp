@@ -185,13 +185,16 @@ class Sedit : public swg::host {
     set(doc);
     return 0;
   }
-  LRESULT OnPaint() {
-    PAINTSTRUCT ps;
-    auto hdc = wil::BeginPaint(hwnd_, &ps);
+  void PresentFrame() {
     glClearColor(1.f, 1.f, 1.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
     render();
     SwapBuffers(hdc_.get());
+  }
+  LRESULT OnPaint() {
+    PAINTSTRUCT ps;
+    auto hdc = wil::BeginPaint(hwnd_, &ps);
+    PresentFrame();
     return 0;
   }
   LRESULT OnChar(wchar_t uchar) {
@@ -230,6 +233,8 @@ class Sedit : public swg::host {
   }
   LRESULT OnSize(int width, int height) {
     resize(width, height);
+    PresentFrame();
+    ValidateRect(hwnd_, nullptr);
     return 0;
   }
   LRESULT OnVScroll(WORD request) {
@@ -409,7 +414,12 @@ class Sedit : public swg::host {
       case WM_MOUSEWHEEL:
         return GetThis(hwnd)->OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wparam));
       case WM_ERASEBKGND:
-        return 0;
+        return 1;
+      case WM_WINDOWPOSCHANGING: {
+        auto wp = reinterpret_cast<WINDOWPOS*>(lparam);
+        wp->flags |= SWP_NOCOPYBITS;
+        return DefWindowProc(hwnd, msg, wparam, lparam);
+      }
       case WM_PAINT:
         return GetThis(hwnd)->OnPaint();
       case WM_LBUTTONDOWN:

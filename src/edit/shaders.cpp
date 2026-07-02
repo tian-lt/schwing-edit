@@ -35,8 +35,8 @@ uniform ivec2 uViewport;
 out vec2 vUV;
 flat out int vLayer;
 void main() {
-  // integer pixel coords -> NDC (vertices sit on pixel edges)
-  vec2 ndc = (vec2(aPos) / vec2(uViewport)) * 2.0 - 1.0;
+  vec2 pixel = vec2(aPos) / 64.0;
+  vec2 ndc = (pixel / vec2(uViewport)) * 2.0 - 1.0;
   ndc.y = -ndc.y;
   gl_Position = vec4(ndc, 0.0, 1.0);
   vUV = vec2(aUV.xy);

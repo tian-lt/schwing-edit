@@ -83,12 +83,12 @@ fontengine::fontengine(const std::string& fontpath, double fontsize, int dpi) {
   impl::reset(this, fontpath, fontsize, dpi);
 }
 
-double fontengine::space_advance() const {
+hb_position_t fontengine::space_advance() const {
   hb_codepoint_t glyph = 0;
   if (!hb_font_get_nominal_glyph(hbfont_.get(), ' ', &glyph)) {
-    return 0.0;
+    return 0;
   }
-  return hb_font_get_glyph_h_advance(hbfont_.get(), glyph) / 64.0;
+  return hb_font_get_glyph_h_advance(hbfont_.get(), glyph);
 }
 
 std::string font_for_script(UScriptCode script) {

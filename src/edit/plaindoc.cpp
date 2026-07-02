@@ -24,6 +24,8 @@ namespace swg {
 
 namespace {
 
+constexpr int32_t hb_units_per_pixel = 64;
+
 using quad = std::array<quad_vertex, 4>;
 struct glyph {
   hb_glyph_info_t* info = nullptr;
@@ -43,6 +45,8 @@ quad make_quad(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const glyphuv& uv
       quad_vertex{x1, y1, u1, v1, layer},
   };
 }
+
+hb_position_t to_hb_units(int32_t pixels) { return pixels * hb_units_per_pixel; }
 
 }  // namespace
 
@@ -301,39 +305,35 @@ struct host::impl {
     }
   }
   static std::generator<quad> layout(host* self, int width, int height) {
-    constexpr float origin = 1.f;
-    float space_adv = (float)select_font(self, USCRIPT_LATIN).space_advance();
-    float tab_unit = space_adv * self->tabsize;
-    float peny = 0.f;
+    constexpr hb_position_t origin = hb_units_per_pixel;
+    hb_position_t space_adv = select_font(self, USCRIPT_LATIN).space_advance();
+    hb_position_t tab_unit = space_adv * self->tabsize;
+    hb_position_t width_limit = to_hb_units(width);
+    hb_position_t height_limit = to_hb_units(height);
+    hb_position_t peny = 0;
     for (size_t l = (size_t)self->topline_; l < self->doc->ltable_.size(); ++l) {
-      if (peny > height) {
+      if (peny > height_limit) {
         break;
       }
-      float penx = origin;
-      peny += line_height(self);
+      hb_position_t penx = origin;
+      peny += to_hb_units(line_height(self));
       for (const glyph& g : shape_line(self, l)) {
-        if (penx > width) {
+        if (penx > width_limit) {
           break;
         }
         if (g.tab) {
-          if (tab_unit > 0.f) {
-            float steps = std::floor((penx - origin) / tab_unit) + 1.f;
+          if (tab_unit > 0) {
+            hb_position_t steps = (penx - origin) / tab_unit + 1;
             penx = origin + steps * tab_unit;
           }
           continue;
         }
-        float xoff = g.pos->x_offset / 64.0f;
-        float yoff = g.pos->y_offset / 64.0f;
-        float xadv = g.pos->x_advance / 64.0f;
-        float yadv = g.pos->y_advance / 64.0f;
-        float ox = penx + xoff;
-        float oy = peny + yoff;
-        int32_t x0 = std::lround(ox + g.value.ext.left);
-        int32_t y0 = std::lround(oy - g.value.ext.top);
-        int32_t x1 = x0 + g.value.uv.w;
-        int32_t y1 = y0 + g.value.uv.h;
-        penx += xadv;
-        peny += yadv;
+        int32_t x0 = penx + g.pos->x_offset + to_hb_units(g.value.ext.left);
+        int32_t y0 = peny + g.pos->y_offset - to_hb_units(g.value.ext.top);
+        int32_t x1 = x0 + to_hb_units(g.value.uv.w);
+        int32_t y1 = y0 + to_hb_units(g.value.uv.h);
+        penx += g.pos->x_advance;
+        peny += g.pos->y_advance;
         if (x1 - x0 == 0 && y1 - y0 == 0) {
           continue;
         }
@@ -344,7 +344,6 @@ struct host::impl {
 };
 
 void host::initialize_graphics() {
-  std::array<float, 9> vertices = {0.0f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f};
   glprog_ = details::create_gl_program();
   glUseProgram(glprog_.get());
   loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");

@@ -291,7 +291,7 @@ struct host::impl {
           }
           auto g = self->atlas_->try_get(face, info.codepoint);
           if (!g.has_value()) {
-            if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_DEFAULT)) {
+            if (FT_Load_Glyph(face, info.codepoint, FT_LOAD_FORCE_AUTOHINT)) {
               continue;
             }
             if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) {

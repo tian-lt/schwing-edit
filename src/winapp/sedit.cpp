@@ -157,7 +157,7 @@ class Sedit : public swg::host {
   static bool Initialize() {
     WNDCLASSEX wcex{
         .cbSize = sizeof(WNDCLASSEX),
-        .style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS | CS_OWNDC,
+        .style = CS_DBLCLKS | CS_OWNDC,
         .lpfnWndProc = WndProc,
         .hInstance = GetModuleHandle(nullptr),
         .hCursor = LoadCursor(nullptr, IDC_IBEAM),

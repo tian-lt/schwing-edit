@@ -12,6 +12,7 @@
 #include "glyphatlas.hpp"
 #include "itemizer.hpp"
 #include "linetable.hpp"
+#include "lrucache.hpp"
 #include "piecetable.hpp"
 #include "resource.hpp"
 
@@ -87,6 +88,7 @@ class plaindoc {
  private:
   piecetable ptable_;
   linetable ltable_;
+  lrucache<size_t, std::vector<int>> lcache_{1000};
   std::map<UScriptCode, fontengine> fonts_;
   unique_hb_buffer hbbuf_;
   double fontsize_;

@@ -18,6 +18,12 @@
 
 namespace swg {
 
+namespace detail {
+
+struct shaped_line {};
+
+}  // namespace detail
+
 struct rect {
   int x, y, w, h;
 };
@@ -71,6 +77,7 @@ class host {
   unique_gl_program glprog_;
   std::optional<glstreamer> streamer_;
   std::optional<glyphatlas> atlas_;
+  lrucache<size_t, std::vector<int>> lcache_{1000};
   GLint loc_viewport_;
 };
 
@@ -88,7 +95,6 @@ class plaindoc {
  private:
   piecetable ptable_;
   linetable ltable_;
-  lrucache<size_t, std::vector<int>> lcache_{1000};
   std::map<UScriptCode, fontengine> fonts_;
   unique_hb_buffer hbbuf_;
   double fontsize_;

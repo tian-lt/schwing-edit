@@ -116,7 +116,14 @@ struct host::impl {
     notify_vscroll(self);
     self->on_invalidate();
   }
-  static void post_edit(host* self, size_t /*pos_before*/, size_t /*pos_after*/) {
+  static void post_edit(host* self, size_t posbefore, size_t posafter) {
+    auto beg = std::min(posbefore, posafter);
+    auto end = std::max(posbefore, posafter);
+    auto begline = self->doc->ltable_.line_at_pos(beg);
+    auto endline = self->doc->ltable_.line_at_pos(end);
+    for (auto i = begline; i <= endline; ++i) {
+      self->lcache_.erase(i);
+    }
     post_caret_move(self);
   }
   // docpos.column counts UTF-8 codepoints from the line start (excluding the eol).
@@ -344,7 +351,7 @@ struct host::impl {
 };
 
 void host::initialize_graphics() {
-  glprog_ = details::create_gl_program();
+  glprog_ = detail::create_gl_program();
   glUseProgram(glprog_.get());
   loc_viewport_ = glGetUniformLocation(glprog_.get(), "uViewport");
 }

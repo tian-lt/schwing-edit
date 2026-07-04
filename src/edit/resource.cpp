@@ -10,7 +10,7 @@ FT_Library ft_library = nullptr;
 
 namespace {}  // namespace
 
-namespace details {
+namespace detail {
 
 void ft_face_deleter::operator()(FT_Face ptr) { check_fterror(FT_Done_Face(ptr)); }
 void hb_font_deleter::operator()(hb_font_t* ptr) { hb_font_destroy(ptr); }
@@ -25,7 +25,7 @@ void gl_framebuffer_deleter::operator()(GLuint framebuffer) {
   glDeleteFramebuffers(1, &framebuffer);
 }
 
-}  // namespace details
+}  // namespace detail
 
 void check_fterror(FT_Error ec) {
   if (ec) {

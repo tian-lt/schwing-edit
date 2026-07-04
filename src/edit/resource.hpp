@@ -12,7 +12,7 @@
 
 namespace swg {
 
-namespace details {
+namespace detail {
 
 template <class T, class Deleter>
   requires requires(T t, Deleter d) { d(t); }
@@ -95,18 +95,18 @@ struct gl_framebuffer_deleter {
   void operator()(GLuint framebuffer);
 };
 
-}  // namespace details
+}  // namespace detail
 
-using unique_ft_face = std::unique_ptr<std::remove_pointer_t<FT_Face>, details::ft_face_deleter>;
-using unique_hb_font = std::unique_ptr<hb_font_t, details::hb_font_deleter>;
-using unique_hb_buffer = std::unique_ptr<hb_buffer_t, details::hb_buffer_deleter>;
-using unique_gl_shader = details::unique_resource<GLuint, details::gl_shader_deleter>;
-using unique_gl_program = details::unique_resource<GLuint, details::gl_program_deleter>;
-using unique_gl_vertext_array = details::unique_resource<GLuint, details::gl_va_deleter>;
-using unique_gl_buffer = details::unique_resource<GLuint, details::gl_buffer_deleter>;
-using unique_gl_fence = details::unique_resource<GLsync, details::gl_fence_deleter>;
-using unique_gl_texture = details::unique_resource<GLuint, details::gl_texture_deleter>;
-using unique_gl_framebuffer = details::unique_resource<GLuint, details::gl_framebuffer_deleter>;
+using unique_ft_face = std::unique_ptr<std::remove_pointer_t<FT_Face>, detail::ft_face_deleter>;
+using unique_hb_font = std::unique_ptr<hb_font_t, detail::hb_font_deleter>;
+using unique_hb_buffer = std::unique_ptr<hb_buffer_t, detail::hb_buffer_deleter>;
+using unique_gl_shader = detail::unique_resource<GLuint, detail::gl_shader_deleter>;
+using unique_gl_program = detail::unique_resource<GLuint, detail::gl_program_deleter>;
+using unique_gl_vertext_array = detail::unique_resource<GLuint, detail::gl_va_deleter>;
+using unique_gl_buffer = detail::unique_resource<GLuint, detail::gl_buffer_deleter>;
+using unique_gl_fence = detail::unique_resource<GLsync, detail::gl_fence_deleter>;
+using unique_gl_texture = detail::unique_resource<GLuint, detail::gl_texture_deleter>;
+using unique_gl_framebuffer = detail::unique_resource<GLuint, detail::gl_framebuffer_deleter>;
 
 FT_Library get_ft_library();
 void initialize();

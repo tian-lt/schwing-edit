@@ -6,7 +6,7 @@
 #include "resource.hpp"
 #include "shaders.hpp"
 
-namespace swg::details {
+namespace swg::detail {
 
 namespace {
 
@@ -73,4 +73,4 @@ void main() {
   return prog;
 }
 
-}  // namespace swg::details
+}  // namespace swg::detail
